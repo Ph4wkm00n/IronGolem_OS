@@ -1,0 +1,66 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Go
+bin/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# TypeScript / Node
+node_modules/
+dist/
+build/
+.next/
+*.tsbuildinfo
+.turbo/
+
+# Tauri
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/Frameworks/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+*.lcov
+tarpaulin-report.html
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Docker
+.docker/
