@@ -15,7 +15,7 @@
     "@irongolem/design-tokens": "workspace:*",
     "@irongolem/schema": "workspace:*",
     "@irongolem/ui": "workspace:*",
-    "react": "^18.2.0",
+    "react": "^19.2.4",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.13.2"
   },
