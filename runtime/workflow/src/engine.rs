@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use irongolem_core::{
+    Error, Result,
     event::{Event, EventKind},
     plan::{Plan, PlanNodeStatus, PlanStatus},
     types::WorkspaceId,
-    Error, Result,
 };
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -31,17 +31,22 @@ impl PlanEngine {
     /// Execute a plan to completion, step by step.
     pub async fn execute(&self, plan: &mut Plan, workspace_id: WorkspaceId) -> Result<()> {
         plan.status = PlanStatus::Running;
-        self.emit_event(workspace_id, EventKind::PlanCreated {
-            plan_id: plan.id,
-            description: plan.description.clone(),
-        }).await;
+        self.emit_event(
+            workspace_id,
+            EventKind::PlanCreated {
+                plan_id: plan.id,
+                description: plan.description.clone(),
+            },
+        )
+        .await;
 
         while let Some(next_node) = plan.next_pending_node() {
             let next_node_id = next_node.id;
 
             // Check if dependencies are satisfied
-            let node = plan.find_node(next_node_id)
-                .ok_or(Error::NodeNotFound { node_id: next_node_id.to_string() })?;
+            let node = plan.find_node(next_node_id).ok_or(Error::NodeNotFound {
+                node_id: next_node_id.to_string(),
+            })?;
             let deps_met = node.dependencies.iter().all(|dep_id| {
                 plan.find_node(*dep_id)
                     .map(|n| n.status == PlanNodeStatus::Completed)
@@ -54,41 +59,62 @@ impl PlanEngine {
             }
 
             // Mark as running
-            let node = plan.find_node_mut(next_node_id)
-                .ok_or(Error::NodeNotFound { node_id: next_node_id.to_string() })?;
+            let node = plan
+                .find_node_mut(next_node_id)
+                .ok_or(Error::NodeNotFound {
+                    node_id: next_node_id.to_string(),
+                })?;
             node.status = PlanNodeStatus::Running;
 
-            self.emit_event(workspace_id, EventKind::PlanStepStarted {
-                plan_id: plan.id,
-                step_id: next_node_id,
-            }).await;
+            self.emit_event(
+                workspace_id,
+                EventKind::PlanStepStarted {
+                    plan_id: plan.id,
+                    step_id: next_node_id,
+                },
+            )
+            .await;
 
             // Execute the step
             match self.executor.execute_step(plan, next_node_id).await {
                 Ok(output) => {
-                    let node = plan.find_node_mut(next_node_id)
-                        .ok_or(Error::NodeNotFound { node_id: next_node_id.to_string() })?;
+                    let node = plan
+                        .find_node_mut(next_node_id)
+                        .ok_or(Error::NodeNotFound {
+                            node_id: next_node_id.to_string(),
+                        })?;
                     node.status = PlanNodeStatus::Completed;
                     node.output = Some(output.clone());
 
-                    self.emit_event(workspace_id, EventKind::PlanStepCompleted {
-                        plan_id: plan.id,
-                        step_id: next_node_id,
-                        output,
-                    }).await;
+                    self.emit_event(
+                        workspace_id,
+                        EventKind::PlanStepCompleted {
+                            plan_id: plan.id,
+                            step_id: next_node_id,
+                            output,
+                        },
+                    )
+                    .await;
                     info!(plan_id = %plan.id, step_id = %next_node_id, "Step completed");
                 }
                 Err(e) => {
-                    let node = plan.find_node_mut(next_node_id)
-                        .ok_or(Error::NodeNotFound { node_id: next_node_id.to_string() })?;
+                    let node = plan
+                        .find_node_mut(next_node_id)
+                        .ok_or(Error::NodeNotFound {
+                            node_id: next_node_id.to_string(),
+                        })?;
                     node.status = PlanNodeStatus::Failed;
                     node.error = Some(e.to_string());
 
-                    self.emit_event(workspace_id, EventKind::PlanStepFailed {
-                        plan_id: plan.id,
-                        step_id: next_node_id,
-                        error: e.to_string(),
-                    }).await;
+                    self.emit_event(
+                        workspace_id,
+                        EventKind::PlanStepFailed {
+                            plan_id: plan.id,
+                            step_id: next_node_id,
+                            error: e.to_string(),
+                        },
+                    )
+                    .await;
                     warn!(plan_id = %plan.id, step_id = %next_node_id, error = %e, "Step failed");
 
                     plan.status = PlanStatus::Failed;
@@ -98,7 +124,8 @@ impl PlanEngine {
         }
 
         plan.status = PlanStatus::Completed;
-        self.emit_event(workspace_id, EventKind::PlanCompleted { plan_id: plan.id }).await;
+        self.emit_event(workspace_id, EventKind::PlanCompleted { plan_id: plan.id })
+            .await;
         info!(plan_id = %plan.id, "Plan completed successfully");
 
         Ok(())
@@ -118,10 +145,10 @@ impl PlanEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::executor::NoopExecutor;
     use irongolem_core::plan::{PlanNode, PlanNodeKind, PlanNodeStatus};
     use irongolem_core::types::AgentId;
     use uuid::Uuid;
-    use crate::executor::NoopExecutor;
 
     /// An executor that always fails with a given error message.
     struct FailingExecutor {

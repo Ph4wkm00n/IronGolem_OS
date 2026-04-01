@@ -86,46 +86,139 @@ impl Event {
 #[serde(tag = "type", content = "data")]
 pub enum EventKind {
     // -- Agent actions --
-    PlanCreated { plan_id: Uuid, description: String },
-    PlanStepStarted { plan_id: Uuid, step_id: Uuid },
-    PlanStepCompleted { plan_id: Uuid, step_id: Uuid, output: serde_json::Value },
-    PlanStepFailed { plan_id: Uuid, step_id: Uuid, error: String },
-    PlanCompleted { plan_id: Uuid },
-    PlanRolledBack { plan_id: Uuid, to_step: Uuid },
-    ToolCalled { tool_name: String, input: serde_json::Value },
-    ToolResult { tool_name: String, output: serde_json::Value },
-    ApprovalRequested { action_description: String, risk_level: String },
-    ApprovalGranted { request_id: Uuid },
-    ApprovalDenied { request_id: Uuid, reason: String },
+    PlanCreated {
+        plan_id: Uuid,
+        description: String,
+    },
+    PlanStepStarted {
+        plan_id: Uuid,
+        step_id: Uuid,
+    },
+    PlanStepCompleted {
+        plan_id: Uuid,
+        step_id: Uuid,
+        output: serde_json::Value,
+    },
+    PlanStepFailed {
+        plan_id: Uuid,
+        step_id: Uuid,
+        error: String,
+    },
+    PlanCompleted {
+        plan_id: Uuid,
+    },
+    PlanRolledBack {
+        plan_id: Uuid,
+        to_step: Uuid,
+    },
+    ToolCalled {
+        tool_name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_name: String,
+        output: serde_json::Value,
+    },
+    ApprovalRequested {
+        action_description: String,
+        risk_level: String,
+    },
+    ApprovalGranted {
+        request_id: Uuid,
+    },
+    ApprovalDenied {
+        request_id: Uuid,
+        reason: String,
+    },
 
     // -- System events --
-    HeartbeatEmitted { service: String, status: HeartbeatStatus },
-    RecoveryStarted { service: String, reason: String },
-    RecoveryCompleted { service: String, strategy: String },
-    RecoveryFailed { service: String, error: String },
-    ConfigChanged { key: String, previous: serde_json::Value, current: serde_json::Value },
-    CheckpointCreated { checkpoint_id: Uuid, plan_id: Uuid },
+    HeartbeatEmitted {
+        service: String,
+        status: HeartbeatStatus,
+    },
+    RecoveryStarted {
+        service: String,
+        reason: String,
+    },
+    RecoveryCompleted {
+        service: String,
+        strategy: String,
+    },
+    RecoveryFailed {
+        service: String,
+        error: String,
+    },
+    ConfigChanged {
+        key: String,
+        previous: serde_json::Value,
+        current: serde_json::Value,
+    },
+    CheckpointCreated {
+        checkpoint_id: Uuid,
+        plan_id: Uuid,
+    },
 
     // -- User actions --
-    RecipeActivated { recipe_id: String, name: String },
-    RecipeDeactivated { recipe_id: String },
-    PreferenceUpdated { key: String, value: serde_json::Value },
+    RecipeActivated {
+        recipe_id: String,
+        name: String,
+    },
+    RecipeDeactivated {
+        recipe_id: String,
+    },
+    PreferenceUpdated {
+        key: String,
+        value: serde_json::Value,
+    },
 
     // -- Security events --
-    ActionBlocked { action: String, reason: String, policy_layer: u8 },
-    QuarantineTriggered { target: String, reason: String },
-    InjectionDetected { source: String, confidence: f64 },
+    ActionBlocked {
+        action: String,
+        reason: String,
+        policy_layer: u8,
+    },
+    QuarantineTriggered {
+        target: String,
+        reason: String,
+    },
+    InjectionDetected {
+        source: String,
+        confidence: f64,
+    },
 
     // -- Research events --
-    SourceFetched { topic: String, source_url: String, trust_score: f64 },
-    ContradictionDetected { topic: String, claim_a: String, claim_b: String },
-    BriefPublished { topic: String, summary: String },
+    SourceFetched {
+        topic: String,
+        source_url: String,
+        trust_score: f64,
+    },
+    ContradictionDetected {
+        topic: String,
+        claim_a: String,
+        claim_b: String,
+    },
+    BriefPublished {
+        topic: String,
+        summary: String,
+    },
 
     // -- Connector events --
-    ConnectorConnected { connector_id: String, connector_type: String },
-    ConnectorDisconnected { connector_id: String, reason: String },
-    MessageReceived { connector_id: String, message_type: String },
-    MessageSent { connector_id: String, message_type: String },
+    ConnectorConnected {
+        connector_id: String,
+        connector_type: String,
+    },
+    ConnectorDisconnected {
+        connector_id: String,
+        reason: String,
+    },
+    MessageReceived {
+        connector_id: String,
+        message_type: String,
+    },
+    MessageSent {
+        connector_id: String,
+        message_type: String,
+    },
 }
 
 /// Health status for heartbeat events.

@@ -1,8 +1,8 @@
 //! Memory store trait for knowledge graph persistence.
 
 use async_trait::async_trait;
-use irongolem_core::types::WorkspaceId;
 use irongolem_core::Result;
+use irongolem_core::types::WorkspaceId;
 use uuid::Uuid;
 
 use crate::graph::{Edge, GraphNode, NodeKind};
@@ -26,11 +26,7 @@ pub trait MemoryStore: Send + Sync {
     ) -> Result<Vec<GraphNode>>;
 
     /// Search nodes by name (partial match).
-    async fn search_nodes(
-        &self,
-        workspace_id: WorkspaceId,
-        query: &str,
-    ) -> Result<Vec<GraphNode>>;
+    async fn search_nodes(&self, workspace_id: WorkspaceId, query: &str) -> Result<Vec<GraphNode>>;
 
     /// Delete a node and its edges.
     async fn delete_node(&self, id: Uuid) -> Result<()>;

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use irongolem_core::{plan::Plan, Error, Result};
+use irongolem_core::{Error, Result, plan::Plan};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -20,8 +20,9 @@ impl CheckpointManager {
 
     /// Create a checkpoint for the current plan state.
     pub async fn create_checkpoint(&self, plan: &Plan) -> Result<Checkpoint> {
-        let plan_state = serde_json::to_value(plan)
-            .map_err(|e| Error::Checkpoint { reason: e.to_string() })?;
+        let plan_state = serde_json::to_value(plan).map_err(|e| Error::Checkpoint {
+            reason: e.to_string(),
+        })?;
 
         let mut checkpoint = Checkpoint::new(plan.id, plan_state);
         checkpoint.last_completed_step = plan
@@ -51,8 +52,10 @@ impl CheckpointManager {
                 reason: format!("Checkpoint {checkpoint_id} not found"),
             })?;
 
-        let plan: Plan = serde_json::from_value(checkpoint.plan_state)
-            .map_err(|e| Error::Rollback { reason: e.to_string() })?;
+        let plan: Plan =
+            serde_json::from_value(checkpoint.plan_state).map_err(|e| Error::Rollback {
+                reason: e.to_string(),
+            })?;
 
         info!(
             checkpoint_id = %checkpoint_id,

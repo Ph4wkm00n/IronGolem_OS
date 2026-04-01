@@ -95,33 +95,39 @@ mod impl_pg {
 
         /// Convert a PostgreSQL row into an `Event`.
         fn row_to_event(row: &postgres::Row) -> Result<Event> {
-            let id: Uuid = row.try_get("id").map_err(|e| Error::Database(e.to_string()))?;
-            let timestamp: chrono::DateTime<chrono::Utc> =
-                row.try_get("timestamp").map_err(|e| Error::Database(e.to_string()))?;
+            let id: Uuid = row
+                .try_get("id")
+                .map_err(|e| Error::Database(e.to_string()))?;
+            let timestamp: chrono::DateTime<chrono::Utc> = row
+                .try_get("timestamp")
+                .map_err(|e| Error::Database(e.to_string()))?;
             let workspace_id: Uuid = row
                 .try_get("workspace_id")
                 .map_err(|e| Error::Database(e.to_string()))?;
-            let user_id: Option<Uuid> =
-                row.try_get("user_id").map_err(|e| Error::Database(e.to_string()))?;
-            let agent_id: Option<Uuid> =
-                row.try_get("agent_id").map_err(|e| Error::Database(e.to_string()))?;
+            let user_id: Option<Uuid> = row
+                .try_get("user_id")
+                .map_err(|e| Error::Database(e.to_string()))?;
+            let agent_id: Option<Uuid> = row
+                .try_get("agent_id")
+                .map_err(|e| Error::Database(e.to_string()))?;
             let session_id: Option<Uuid> = row
                 .try_get("session_id")
                 .map_err(|e| Error::Database(e.to_string()))?;
             let channel_id: Option<Uuid> = row
                 .try_get("channel_id")
                 .map_err(|e| Error::Database(e.to_string()))?;
-            let kind_json: serde_json::Value =
-                row.try_get("kind").map_err(|e| Error::Database(e.to_string()))?;
-            let risk_json: Option<serde_json::Value> =
-                row.try_get("risk").map_err(|e| Error::Database(e.to_string()))?;
+            let kind_json: serde_json::Value = row
+                .try_get("kind")
+                .map_err(|e| Error::Database(e.to_string()))?;
+            let risk_json: Option<serde_json::Value> = row
+                .try_get("risk")
+                .map_err(|e| Error::Database(e.to_string()))?;
             let parent_event_id: Option<Uuid> = row
                 .try_get("parent_event_id")
                 .map_err(|e| Error::Database(e.to_string()))?;
 
             let kind: EventKind = serde_json::from_value(kind_json)?;
-            let risk: Option<RiskMetadata> =
-                risk_json.map(serde_json::from_value).transpose()?;
+            let risk: Option<RiskMetadata> = risk_json.map(serde_json::from_value).transpose()?;
 
             Ok(Event {
                 id,
@@ -142,11 +148,7 @@ mod impl_pg {
     impl EventStore for PgEventStore {
         async fn append(&self, event: &Event) -> Result<()> {
             let kind_json = serde_json::to_value(&event.kind)?;
-            let risk_json = event
-                .risk
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()?;
+            let risk_json = event.risk.as_ref().map(serde_json::to_value).transpose()?;
 
             let mut client = self
                 .client

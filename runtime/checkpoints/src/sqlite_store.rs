@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use irongolem_core::{Error, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 use uuid::Uuid;
 
@@ -37,7 +37,10 @@ impl SqliteCheckpointStore {
 
     /// Create the checkpoints table and indexes if they do not exist.
     fn init_db(&self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS checkpoints (
                 id                  TEXT PRIMARY KEY NOT NULL,
@@ -77,14 +80,9 @@ impl SqliteCheckpointStore {
         let id = parse_uuid(&id_str)?;
         let plan_id = parse_uuid(&plan_id_str)?;
         let last_completed_step = step_str.map(|s| parse_uuid(&s)).transpose()?;
-        let plan_state: serde_json::Value =
-            serde_json::from_str(&state_json).map_err(|e| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    3,
-                    rusqlite::types::Type::Text,
-                    Box::new(e),
-                )
-            })?;
+        let plan_state: serde_json::Value = serde_json::from_str(&state_json).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+        })?;
         let created_at: DateTime<Utc> = chrono::DateTime::parse_from_rfc3339(&created_str)
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|e| {
@@ -110,7 +108,10 @@ impl SqliteCheckpointStore {
 impl CheckpointStore for SqliteCheckpointStore {
     async fn save(&self, checkpoint: &Checkpoint) -> Result<()> {
         let state_json = serde_json::to_string(&checkpoint.plan_state)?;
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute(
             "INSERT OR REPLACE INTO checkpoints (id, plan_id, last_completed_step, plan_state, created_at, label)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -128,7 +129,10 @@ impl CheckpointStore for SqliteCheckpointStore {
     }
 
     async fn load_latest(&self, plan_id: Uuid) -> Result<Option<Checkpoint>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, plan_id, last_completed_step, plan_state, created_at, label
@@ -150,7 +154,10 @@ impl CheckpointStore for SqliteCheckpointStore {
     }
 
     async fn load(&self, checkpoint_id: Uuid) -> Result<Option<Checkpoint>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, plan_id, last_completed_step, plan_state, created_at, label
@@ -170,7 +177,10 @@ impl CheckpointStore for SqliteCheckpointStore {
     }
 
     async fn list_for_plan(&self, plan_id: Uuid) -> Result<Vec<Checkpoint>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, plan_id, last_completed_step, plan_state, created_at, label
@@ -192,7 +202,10 @@ impl CheckpointStore for SqliteCheckpointStore {
     }
 
     async fn prune(&self, plan_id: Uuid, keep_latest: usize) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
 
         // Delete all checkpoints for this plan except the N most recent.
         let deleted = conn
