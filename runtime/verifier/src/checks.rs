@@ -12,9 +12,9 @@ pub struct NonEmptyVerifier;
 impl Verifier for NonEmptyVerifier {
     async fn verify(&self, output: &serde_json::Value) -> Result<VerificationResult> {
         let is_empty = output.is_null()
-            || (output.is_string() && output.as_str().unwrap_or("").is_empty())
-            || (output.is_array() && output.as_array().unwrap().is_empty())
-            || (output.is_object() && output.as_object().unwrap().is_empty());
+            || output.as_str().is_some_and(|s| s.is_empty())
+            || output.as_array().is_some_and(|a| a.is_empty())
+            || output.as_object().is_some_and(|o| o.is_empty());
 
         Ok(VerificationResult {
             passed: !is_empty,

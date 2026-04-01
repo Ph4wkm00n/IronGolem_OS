@@ -82,7 +82,8 @@ func main() {
 	mux.HandleFunc("GET /api/v1/events", timelineHandler.ListEvents)
 	mux.HandleFunc("GET /api/v1/events/{id}", timelineHandler.GetEvent)
 
-	// Build middleware chain: logging -> tenant -> policy -> handler.
+	// Build middleware chain (outermost first):
+	// security headers -> rate limit -> request size -> CORS -> logging -> tenant -> policy -> handler.
 	deployMode := middleware.DeploymentMode(envOrDefault("DEPLOYMENT_MODE", "solo"))
 	policyEngine := policy.NewDefaultPolicyEngine(logger)
 
@@ -90,6 +91,10 @@ func main() {
 	finalHandler = middleware.PolicyMiddleware(policyEngine, logger, eventStore)(finalHandler)
 	finalHandler = middleware.TenantMiddleware(logger, deployMode)(finalHandler)
 	finalHandler = middleware.LoggingMiddleware(logger)(finalHandler)
+	finalHandler = middleware.CORSMiddleware(middleware.DefaultCORSConfig())(finalHandler)
+	finalHandler = middleware.RequestSizeMiddleware(1 << 20)(finalHandler) // 1 MB
+	finalHandler = middleware.RateLimitMiddleware(middleware.DefaultRateLimitConfig())(finalHandler)
+	finalHandler = middleware.SecurityHeadersMiddleware()(finalHandler)
 
 	addr := envOrDefault("GATEWAY_ADDR", ":8080")
 	srv := &http.Server{

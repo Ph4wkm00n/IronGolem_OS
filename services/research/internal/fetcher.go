@@ -152,19 +152,47 @@ func (f *HTTPFetcher) FetchSource(ctx context.Context, rawURL string) (FetchResu
 }
 
 // isPrivateHost returns true if the hostname resolves to a private,
-// loopback, or link-local address.
+// loopback, or link-local address. It checks RFC 1918 ranges, loopback,
+// link-local, and cloud metadata endpoints to prevent SSRF.
 func isPrivateHost(host string) bool {
 	lower := strings.ToLower(host)
-	if lower == "localhost" || lower == "127.0.0.1" || lower == "::1" {
+	if lower == "localhost" || lower == "::1" || lower == "0.0.0.0" {
 		return true
 	}
-	if strings.HasPrefix(lower, "10.") ||
-		strings.HasPrefix(lower, "192.168.") ||
-		strings.HasPrefix(lower, "172.16.") ||
-		strings.HasPrefix(lower, "169.254.") ||
-		lower == "0.0.0.0" {
+
+	// Cloud metadata endpoints.
+	if lower == "metadata.google.internal" || lower == "169.254.169.254" {
 		return true
 	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Hostname, not an IP -- only block known names.
+		return false
+	}
+
+	// Check against private/reserved CIDR ranges.
+	privateCIDRs := []string{
+		"127.0.0.0/8",    // loopback
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918 (172.16.0.0 - 172.31.255.255)
+		"192.168.0.0/16", // RFC 1918
+		"169.254.0.0/16", // link-local
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+		"fe80::/10",      // IPv6 link-local
+	}
+
+	for _, cidr := range privateCIDRs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if ipNet.Contains(ip) {
+			return true
+		}
+	}
+
 	return false
 }
 

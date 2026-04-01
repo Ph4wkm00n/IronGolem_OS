@@ -1,0 +1,77 @@
+version: 2
+
+updates:
+  # Rust dependencies (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/runtime"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    reviewers:
+      - "irongolem/rust-team"
+    commit-message:
+      prefix: "deps(rust):"
+
+  # Go dependencies - services
+  - package-ecosystem: "gomod"
+    directory: "/services"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+    reviewers:
+      - "irongolem/go-team"
+    commit-message:
+      prefix: "deps(go):"
+
+  # Go dependencies - connectors
+  - package-ecosystem: "gomod"
+    directory: "/connectors"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+    reviewers:
+      - "irongolem/connectors-team"
+    commit-message:
+      prefix: "deps(go):"
+
+  # npm dependencies (pnpm)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "typescript"
+    reviewers:
+      - "irongolem/frontend-team"
+    commit-message:
+      prefix: "deps(npm):"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    reviewers:
+      - "irongolem/platform-team"
+    commit-message:
+      prefix: "deps(actions):"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -176,5 +177,6 @@ func isSubPath(parent, child string) bool {
 	if err != nil {
 		return false
 	}
-	return rel != ".." && len(rel) > 0 && rel[0] != '.'
+	// Reject if relative path escapes parent via ".." components.
+	return !strings.HasPrefix(rel, "..") && rel != "."
 }

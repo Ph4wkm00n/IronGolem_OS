@@ -1,0 +1,28 @@
+# IronGolem OS Code Owners
+# Each line is a file pattern followed by one or more owners.
+# Order matters: later rules take precedence.
+
+# Default owner for everything
+* @irongolem/core-team
+
+# Rust runtime crates
+/runtime/ @irongolem/rust-team
+
+# Go control plane services
+/services/ @irongolem/go-team
+
+# Frontend apps and shared packages
+/apps/ @irongolem/frontend-team
+/packages/ @irongolem/frontend-team
+
+# Connectors
+/connectors/ @irongolem/connectors-team
+
+# Documentation
+/docs/ @irongolem/docs-team
+
+# Infrastructure and deployment
+/infra/ @irongolem/platform-team
+
+# CI/CD and GitHub configuration
+/.github/ @irongolem/platform-team
