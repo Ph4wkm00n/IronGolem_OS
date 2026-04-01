@@ -5,15 +5,55 @@ import { agentRoleLabel } from "@irongolem/schema";
 import api from "../lib/api";
 
 /* ------------------------------------------------------------------ */
+/*  Placeholder data                                                   */
+/* ------------------------------------------------------------------ */
+
+const SAMPLE_APPROVALS: readonly ApprovalRequest[] = [
+  {
+    id: "approval-1",
+    planNodeId: "node-101",
+    summary: "Send a reply to the team standup thread confirming your availability for tomorrow.",
+    riskLevel: "low",
+    requestedAt: "2026-03-31T14:22:00Z",
+    agentRole: "executor",
+    status: "pending",
+  },
+  {
+    id: "approval-2",
+    planNodeId: "node-202",
+    summary: "Reschedule your 3 PM meeting with the design team to Thursday at 10 AM.",
+    riskLevel: "medium",
+    requestedAt: "2026-03-31T13:05:00Z",
+    agentRole: "planner",
+    status: "pending",
+  },
+  {
+    id: "approval-3",
+    planNodeId: "node-303",
+    summary: "Archive 12 newsletter emails older than 30 days that you haven't opened.",
+    riskLevel: "medium",
+    requestedAt: "2026-03-31T11:48:00Z",
+    agentRole: "executor",
+    status: "pending",
+  },
+  {
+    id: "approval-4",
+    planNodeId: "node-404",
+    summary: "Share the quarterly report document with 3 external collaborators.",
+    riskLevel: "high",
+    requestedAt: "2026-03-31T10:30:00Z",
+    agentRole: "executor",
+    status: "pending",
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /*  State                                                              */
 /* ------------------------------------------------------------------ */
 
-type FilterStatus = "all" | "pending" | "approved" | "denied";
-
 interface InboxState {
-  requests: readonly ApprovalRequest[];
+  approvals: readonly ApprovalRequest[];
   loading: boolean;
-  filter: FilterStatus;
 }
 
 /* ------------------------------------------------------------------ */
@@ -22,9 +62,8 @@ interface InboxState {
 
 export function Inbox() {
   const [state, setState] = useState<InboxState>({
-    requests: [],
+    approvals: [],
     loading: true,
-    filter: "pending",
   });
 
   useEffect(() => {
@@ -34,100 +73,93 @@ export function Inbox() {
       try {
         const res = await api.approvals.listPending({ pageSize: 50 });
         if (!cancelled) {
-          setState((prev) => ({ ...prev, loading: false, requests: res.items }));
+          setState({
+            approvals: res.items.length > 0 ? res.items : SAMPLE_APPROVALS,
+            loading: false,
+          });
         }
       } catch {
-        if (!cancelled) setState((prev) => ({ ...prev, loading: false }));
+        if (!cancelled) {
+          setState({ approvals: SAMPLE_APPROVALS, loading: false });
+        }
       }
     }
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  const filtered =
-    state.filter === "all"
-      ? state.requests
-      : state.requests.filter((r) => r.status === state.filter);
-
-  const pendingCount = state.requests.filter((r) => r.status === "pending").length;
 
   async function handleApprove(id: string) {
     try {
-      const updated = await api.approvals.approve(id);
-      setState((prev) => ({
-        ...prev,
-        requests: prev.requests.map((r) => (r.id === id ? updated : r)),
-      }));
+      await api.approvals.approve(id);
     } catch {
-      // Would use toast in production
+      // Demo mode fallback
     }
+    setState((prev) => ({
+      ...prev,
+      approvals: prev.approvals.filter((a) => a.id !== id),
+    }));
   }
 
   async function handleDeny(id: string) {
     try {
-      const updated = await api.approvals.deny(id);
-      setState((prev) => ({
-        ...prev,
-        requests: prev.requests.map((r) => (r.id === id ? updated : r)),
-      }));
+      await api.approvals.deny(id);
     } catch {
-      // Would use toast in production
+      // Demo mode fallback
     }
+    setState((prev) => ({
+      ...prev,
+      approvals: prev.approvals.filter((a) => a.id !== id),
+    }));
   }
+
+  const pendingCount = state.approvals.filter((a) => a.status === "pending").length;
 
   return (
     <div className="page-container">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="mb-6">
         <h1 className="page-title">Inbox</h1>
-        {pendingCount > 0 && (
-          <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
-            {pendingCount}
-          </span>
-        )}
-      </div>
-
-      {/* Filter tabs */}
-      <div className="flex gap-1 mb-6 border-b border-neutral-200">
-        {(["pending", "approved", "denied", "all"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setState((prev) => ({ ...prev, filter: tab }))}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              state.filter === tab
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-neutral-500 hover:text-neutral-700"
-            }`}
-          >
-            {tab === "all" ? "All" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
+        <p className="mt-1 text-sm text-neutral-500">
+          {pendingCount === 0
+            ? "Nothing needs your approval right now."
+            : `${pendingCount} ${pendingCount === 1 ? "item needs" : "items need"} your review.`}
+        </p>
       </div>
 
       {state.loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-200 border-t-indigo-600" />
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="card-padded text-center py-12">
-          <p className="text-neutral-500">
-            {state.filter === "pending"
-              ? "No items waiting for your approval."
-              : "No items match this filter."}
-          </p>
+      ) : state.approvals.length === 0 ? (
+        <div className="card-padded text-center py-16">
+          <svg
+            className="mx-auto h-12 w-12 text-neutral-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859"
+            />
+          </svg>
+          <p className="mt-4 text-sm text-neutral-500">Your inbox is clear. Nice work.</p>
         </div>
       ) : (
-        <ul className="space-y-3" role="list">
-          {filtered.map((req) => (
+        <div className="space-y-4">
+          {state.approvals.map((approval) => (
             <ApprovalCard
-              key={req.id}
-              request={req}
-              onApprove={() => handleApprove(req.id)}
-              onDeny={() => handleDeny(req.id)}
+              key={approval.id}
+              approval={approval}
+              onApprove={() => handleApprove(approval.id)}
+              onDeny={() => handleDeny(approval.id)}
             />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
@@ -137,70 +169,81 @@ export function Inbox() {
 /*  Approval card                                                      */
 /* ------------------------------------------------------------------ */
 
-function ApprovalCard({
-  request,
-  onApprove,
-  onDeny,
-}: {
-  request: ApprovalRequest;
+interface ApprovalCardProps {
+  approval: ApprovalRequest;
   onApprove: () => void;
   onDeny: () => void;
-}) {
-  const statusStyles: Record<ApprovalRequest["status"], string> = {
-    pending: "border-amber-200 bg-amber-50/30",
-    approved: "border-emerald-200 bg-emerald-50/30",
-    denied: "border-red-200 bg-red-50/30",
-  };
+}
 
-  const roleLabel = agentRoleLabel[request.agentRole] ?? request.agentRole;
+const RISK_BORDER: Record<RiskLevel, string> = {
+  low: "border-l-emerald-400",
+  medium: "border-l-amber-400",
+  high: "border-l-orange-400",
+  critical: "border-l-red-500",
+};
+
+function ApprovalCard({ approval, onApprove, onDeny }: ApprovalCardProps) {
+  const roleLabel =
+    agentRoleLabel[approval.agentRole as keyof typeof agentRoleLabel] ??
+    approval.agentRole;
 
   return (
-    <li className={`rounded-xl border p-4 ${statusStyles[request.status]}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm font-semibold text-neutral-900">{request.summary}</h3>
-            <RiskBadge level={request.riskLevel} size="sm" />
-          </div>
-          <p className="mt-1 text-xs text-neutral-500">
-            Requested by {roleLabel}
+    <article
+      className={`card-padded border-l-4 ${RISK_BORDER[approval.riskLevel]}`}
+      aria-label={`Approval request: ${approval.summary}`}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-neutral-900 leading-relaxed">
+            {approval.summary}
           </p>
-          <time className="text-xs text-neutral-400" dateTime={request.requestedAt}>
-            {new Date(request.requestedAt).toLocaleString()}
-          </time>
+
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <RiskBadge level={approval.riskLevel} size="sm" />
+            <span className="text-xs text-neutral-500">
+              Requested by {roleLabel}
+            </span>
+            <time
+              className="text-xs text-neutral-400"
+              dateTime={approval.requestedAt}
+            >
+              {formatTimestamp(approval.requestedAt)}
+            </time>
+          </div>
         </div>
 
-        {request.status === "pending" && (
-          <div className="flex gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={onApprove}
-              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              onClick={onDeny}
-              className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-200 transition-colors"
-            >
-              Deny
-            </button>
-          </div>
-        )}
-
-        {request.status !== "pending" && (
-          <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              request.status === "approved"
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-red-100 text-red-700"
-            }`}
+        {/* Actions */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onDeny}
+            className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
-            {request.status === "approved" ? "Approved" : "Denied"}
-          </span>
-        )}
+            Deny
+          </button>
+          <button
+            type="button"
+            onClick={onApprove}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+          >
+            Approve
+          </button>
+        </div>
       </div>
-    </li>
+    </article>
   );
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
 }

@@ -1,12 +1,13 @@
 // Package main is the entry point for the IronGolem OS Health service.
 //
-// The health service monitors all platform services and agents via heartbeats,
-// detects degradation, and triggers self-healing actions. It implements the
-// "self-healing loop" described in the architecture.
+// The health service monitors the status of all services and agents via
+// heartbeats. It detects missed heartbeats, tracks service health states,
+// and triggers self-healing when services degrade.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Ph4wkm00n/IronGolem_OS/services/health/internal"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 )
 
@@ -24,16 +26,77 @@ func main() {
 	logger := telemetry.SetupLogger(cfg)
 	slog.SetDefault(logger)
 
-	hbMgr := internal.NewHeartbeatManager(logger)
-	h := internal.NewHandler(logger, hbMgr)
+	hbMgr := internal.NewHeartbeatManager(logger, internal.HeartbeatConfig{
+		Timeout:       30 * time.Second,
+		CheckInterval: 10 * time.Second,
+	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", h.HealthCheck)
-	mux.HandleFunc("POST /api/v1/heartbeats", h.RecordHeartbeat)
-	mux.HandleFunc("GET /api/v1/services", h.ListServices)
-	mux.HandleFunc("GET /api/v1/services/{name}/status", h.ServiceStatus)
-	mux.HandleFunc("POST /api/v1/services/{name}/pause", h.PauseService)
-	mux.HandleFunc("POST /api/v1/services/{name}/resume", h.ResumeService)
+
+	// Liveness probe.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "ok",
+			"service": "health",
+			"time":    time.Now().UTC(),
+		})
+	})
+
+	// Overall system health summary.
+	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "health.system_status")
+		defer span.End(logger)
+
+		summary := hbMgr.SystemSummary(ctx)
+		writeJSON(w, http.StatusOK, summary)
+	})
+
+	// List all heartbeat records.
+	mux.HandleFunc("GET /api/v1/heartbeats", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "health.list_heartbeats")
+		defer span.End(logger)
+
+		records := hbMgr.ListAll(ctx)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"heartbeats": records,
+			"count":      len(records),
+		})
+	})
+
+	// Receive a heartbeat check-in from a service or agent.
+	mux.HandleFunc("POST /api/v1/heartbeats", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "health.receive_heartbeat")
+		defer span.End(logger)
+
+		var payload events.HeartbeatPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			logger.WarnContext(ctx, "invalid heartbeat body",
+				slog.String("error", err.Error()),
+			)
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid request body",
+			})
+			return
+		}
+
+		if payload.ServiceName == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "service_name is required",
+			})
+			return
+		}
+
+		hbMgr.RecordHeartbeat(ctx, payload)
+
+		logger.InfoContext(ctx, "heartbeat received",
+			slog.String("service", payload.ServiceName),
+			slog.String("status", string(payload.Status)),
+		)
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status": "recorded",
+		})
+	})
 
 	addr := envOrDefault("HEALTH_ADDR", ":8082")
 	srv := &http.Server{
@@ -47,8 +110,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go hbMgr.Run(ctx)
-
 	go func() {
 		logger.Info("health service starting", slog.String("addr", addr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -56,6 +117,9 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+
+	// Start background heartbeat monitor.
+	go hbMgr.Run(ctx)
 
 	<-ctx.Done()
 	logger.Info("health service shutting down")
@@ -67,6 +131,7 @@ func main() {
 		logger.Error("shutdown error", slog.String("error", err.Error()))
 	}
 
+	hbMgr.Stop()
 	logger.Info("health service stopped")
 }
 
@@ -75,4 +140,10 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
 }
