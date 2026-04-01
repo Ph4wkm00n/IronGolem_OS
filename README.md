@@ -108,15 +108,6 @@ See the [Deployment Guide](docs/guides/deployment-guide.md) for Solo, Household,
 | [Connector Development](docs/guides/connector-development.md) | Plugin authors |
 | [Changelog](docs/CHANGELOG.md) | Everyone |
 
-### Specifications
-
-- [Product Requirements](docs/specs/01-product-requirements-document-v2.md)
-- [Features and Modules](docs/specs/02-features-modules-and-agent-loops-v2.md)
-- [Roadmap](docs/specs/03-roadmap-and-release-plan-v2.md)
-- [Implementation Plan](docs/specs/04-implementation-plan-v2.md)
-- [UI/UX Design Guide](docs/specs/05-ui-ux-design-guide-v2.md)
-- [Handbook](docs/specs/IronGolemOS_handbook.md)
-
 ## Community
 
 - [Contributing Guide](CONTRIBUTING.md) -- how to submit patches and proposals
