@@ -1,20 +1,26 @@
-# Multi-stage build for Go services
+# Multi-stage build for all Go services
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
-COPY services/go.mod services/go.sum ./
-RUN go mod download
+COPY services/go.mod services/go.sum* ./
+RUN go mod download || true
 
 COPY services/ .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/gateway ./gateway/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/scheduler ./scheduler/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/health ./health/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/defense ./defense/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/tenancy ./tenancy/cmd
+
+# Build all 8 services as static binaries
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-gateway ./gateway/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-scheduler ./scheduler/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-health ./health/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-defense ./defense/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-research ./research/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-optimizer ./optimizer/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-tenancy ./tenancy/cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-fleet ./fleet/cmd
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /bin/* /usr/local/bin/
+COPY --from=builder /bin/irongolem-* /usr/local/bin/
 
+# Default to gateway; override with docker compose command
 EXPOSE 8080
-CMD ["gateway"]
+CMD ["irongolem-gateway"]
