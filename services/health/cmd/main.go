@@ -41,6 +41,9 @@ func main() {
 		ConnectorTimeout: 5 * time.Second,
 	})
 
+	// Set up connector canary manager.
+	canaryMgr := internal.NewCanaryManager(logger)
+
 	mux := http.NewServeMux()
 
 	// Liveness probe.
@@ -123,6 +126,42 @@ func main() {
 	// Resource usage endpoint.
 	mux.Handle("GET /api/v1/health/resources", monitor.HandleResources())
 
+	// List canary checks.
+	mux.HandleFunc("GET /api/v1/health/canaries", func(w http.ResponseWriter, r *http.Request) {
+		_, span := telemetry.NewSpan(r.Context(), "health.list_canaries")
+		defer span.End(logger)
+
+		checks := canaryMgr.List()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"canaries": checks,
+			"count":    len(checks),
+		})
+	})
+
+	// Force run a canary check.
+	mux.HandleFunc("POST /api/v1/health/canaries/{id}/run", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "health.run_canary")
+		defer span.End(logger)
+
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "canary id is required",
+			})
+			return
+		}
+
+		result, err := canaryMgr.RunCheck(ctx, id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	// Healing log endpoint.
 	mux.HandleFunc("GET /api/v1/health/healing", func(w http.ResponseWriter, r *http.Request) {
 		_, span := telemetry.NewSpan(r.Context(), "health.healing_log")
@@ -155,9 +194,10 @@ func main() {
 		}
 	}()
 
-	// Start background heartbeat monitor and system monitor.
+	// Start background heartbeat monitor, system monitor, and canary manager.
 	go hbMgr.Run(ctx)
 	go monitor.Run(ctx)
+	go canaryMgr.Run(ctx)
 
 	<-ctx.Done()
 	logger.Info("health service shutting down")
@@ -171,6 +211,7 @@ func main() {
 
 	hbMgr.Stop()
 	monitor.Stop()
+	canaryMgr.Stop()
 	logger.Info("health service stopped")
 }
 
