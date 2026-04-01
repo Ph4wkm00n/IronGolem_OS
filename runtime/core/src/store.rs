@@ -89,15 +89,6 @@ impl SqliteEventStore {
         Ok(())
     }
 
-    /// Extract the serde tag value (event kind discriminant) from a serialized `EventKind`.
-    fn kind_tag(kind: &EventKind) -> Result<String> {
-        let v = serde_json::to_value(kind)?;
-        match v.get("type").and_then(|t| t.as_str()) {
-            Some(t) => Ok(t.to_string()),
-            None => Ok("unknown".to_string()),
-        }
-    }
-
     fn row_to_event(row: &rusqlite::Row<'_>) -> std::result::Result<Event, rusqlite::Error> {
         let id_str: String = row.get(0)?;
         let ts_str: String = row.get(1)?;
