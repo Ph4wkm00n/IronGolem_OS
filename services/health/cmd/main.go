@@ -31,6 +31,16 @@ func main() {
 		CheckInterval: 10 * time.Second,
 	})
 
+	// Set up the self-healing engine with escalating recovery strategies.
+	healer := internal.NewDefaultHealer(logger)
+	hbMgr.SetHealer(healer)
+
+	// Set up the system monitor for resource and connector tracking.
+	monitor := internal.NewSystemMonitor(logger, hbMgr, internal.MonitorConfig{
+		PollInterval:     15 * time.Second,
+		ConnectorTimeout: 5 * time.Second,
+	})
+
 	mux := http.NewServeMux()
 
 	// Liveness probe.
@@ -98,6 +108,33 @@ func main() {
 		})
 	})
 
+	// Health summary endpoint for the Health Center dashboard.
+	mux.HandleFunc("GET /api/v1/health/summary", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "health.summary")
+		defer span.End(logger)
+
+		summary := monitor.Summary(ctx)
+		writeJSON(w, http.StatusOK, summary)
+	})
+
+	// Connector health status.
+	mux.Handle("GET /api/v1/health/connectors", monitor.HandleConnectors())
+
+	// Resource usage endpoint.
+	mux.Handle("GET /api/v1/health/resources", monitor.HandleResources())
+
+	// Healing log endpoint.
+	mux.HandleFunc("GET /api/v1/health/healing", func(w http.ResponseWriter, r *http.Request) {
+		_, span := telemetry.NewSpan(r.Context(), "health.healing_log")
+		defer span.End(logger)
+
+		entries := healer.Log().Entries()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"entries": entries,
+			"count":   len(entries),
+		})
+	})
+
 	addr := envOrDefault("HEALTH_ADDR", ":8082")
 	srv := &http.Server{
 		Addr:              addr,
@@ -118,8 +155,9 @@ func main() {
 		}
 	}()
 
-	// Start background heartbeat monitor.
+	// Start background heartbeat monitor and system monitor.
 	go hbMgr.Run(ctx)
+	go monitor.Run(ctx)
 
 	<-ctx.Done()
 	logger.Info("health service shutting down")
@@ -132,6 +170,7 @@ func main() {
 	}
 
 	hbMgr.Stop()
+	monitor.Stop()
 	logger.Info("health service stopped")
 }
 

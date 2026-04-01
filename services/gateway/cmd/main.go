@@ -1,8 +1,9 @@
 // Package main is the entry point for the IronGolem OS Gateway service.
 //
 // The gateway is the front door for all external communication. It handles
-// message ingress and egress, connector lifecycle management, and applies
-// Layer 1 (Gateway Identity) of the five-layer security model.
+// message ingress and egress, connector lifecycle management, recipe gallery
+// and activation, approval workflows, event timeline, and applies Layer 1
+// (Gateway Identity) of the five-layer security model.
 package main
 
 import (
@@ -29,6 +30,15 @@ func main() {
 	connMgr := connector.NewManager(logger)
 	h := handler.New(logger, connMgr)
 
+	// Shared stores for the recipe, approval, and timeline subsystems.
+	eventStore := handler.NewInMemoryEventStore()
+	recipeStore := handler.NewInMemoryRecipeStore()
+	approvalStore := handler.NewInMemoryApprovalStore()
+
+	recipeHandler := handler.NewRecipeHandler(logger, recipeStore, eventStore)
+	approvalHandler := handler.NewApprovalHandler(logger, approvalStore, eventStore)
+	timelineHandler := handler.NewTimelineHandler(logger, eventStore)
+
 	mux := http.NewServeMux()
 
 	// Health check.
@@ -43,6 +53,22 @@ func main() {
 	mux.HandleFunc("POST /api/v1/connectors/{id}/connect", h.ConnectorConnect)
 	mux.HandleFunc("POST /api/v1/connectors/{id}/disconnect", h.ConnectorDisconnect)
 	mux.HandleFunc("POST /api/v1/connectors/{id}/heartbeat", h.ConnectorHeartbeat)
+
+	// Recipe routes.
+	mux.HandleFunc("GET /api/v1/recipes", recipeHandler.ListRecipes)
+	mux.HandleFunc("GET /api/v1/recipes/{id}", recipeHandler.GetRecipe)
+	mux.HandleFunc("POST /api/v1/recipes/{id}/activate", recipeHandler.ActivateRecipe)
+	mux.HandleFunc("POST /api/v1/recipes/{id}/deactivate", recipeHandler.DeactivateRecipe)
+
+	// Approval routes.
+	mux.HandleFunc("GET /api/v1/approvals", approvalHandler.ListApprovals)
+	mux.HandleFunc("GET /api/v1/approvals/{id}", approvalHandler.GetApproval)
+	mux.HandleFunc("POST /api/v1/approvals/{id}/approve", approvalHandler.ApproveAction)
+	mux.HandleFunc("POST /api/v1/approvals/{id}/deny", approvalHandler.DenyAction)
+
+	// Timeline / event routes.
+	mux.HandleFunc("GET /api/v1/events", timelineHandler.ListEvents)
+	mux.HandleFunc("GET /api/v1/events/{id}", timelineHandler.GetEvent)
 
 	addr := envOrDefault("GATEWAY_ADDR", ":8080")
 	srv := &http.Server{

@@ -6,6 +6,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,6 +15,9 @@ import (
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 )
+
+// errNotFound is a sentinel error returned when a resource is not found.
+var errNotFound = errors.New("not found")
 
 // Handler holds the dependencies for the gateway HTTP handlers.
 type Handler struct {

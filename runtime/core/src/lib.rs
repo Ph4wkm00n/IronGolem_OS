@@ -8,6 +8,7 @@ pub mod event;
 pub mod plan;
 pub mod policy;
 pub mod risk;
+pub mod store;
 pub mod types;
 
 pub use error::{Error, Result};
@@ -15,4 +16,5 @@ pub use event::{Event, EventKind};
 pub use plan::{Plan, PlanNode, PlanNodeKind, PlanStatus};
 pub use policy::{Action, Permission, PolicyDecision};
 pub use risk::{RiskLevel, RiskMetadata};
+pub use store::{EventStore, SqliteEventStore};
 pub use types::{AgentId, ChannelId, ConnectorId, SessionId, TenantId, UserId, WorkspaceId};
