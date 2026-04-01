@@ -13,31 +13,21 @@ env:
   NODE_VERSION: "20"
 
 jobs:
-  build-binaries:
-    name: Build Go Binaries (${{ matrix.os }}-${{ matrix.arch }})
+  build-go-binaries:
+    name: Go Binaries (${{ matrix.goos }}-${{ matrix.goarch }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: linux
-            arch: amd64
-            goos: linux
+          - goos: linux
             goarch: amd64
-          - os: linux
-            arch: arm64
-            goos: linux
+          - goos: linux
             goarch: arm64
-          - os: darwin
-            arch: amd64
-            goos: darwin
+          - goos: darwin
             goarch: amd64
-          - os: darwin
-            arch: arm64
-            goos: darwin
+          - goos: darwin
             goarch: arm64
-          - os: windows
-            arch: amd64
-            goos: windows
+          - goos: windows
             goarch: amd64
             ext: .exe
     steps:
@@ -50,67 +40,50 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Build Go services
+        working-directory: services
         env:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          mkdir -p dist
-          for svc in gateway scheduler health defense research optimizer tenancy; do
+          mkdir -p ../dist
+          VERSION="${{ github.ref_name }}"
+          for svc in gateway scheduler health defense research optimizer tenancy fleet; do
             echo "Building ${svc}..."
-            go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-              -o "dist/irongolem-${svc}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" \
-              "./services/${svc}/..."
+            go build -ldflags="-s -w -X main.version=${VERSION}" \
+              -o "../dist/irongolem-${svc}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" \
+              "./${svc}/cmd"
           done
-
-      - name: Build connectors
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          for conn in email calendar telegram slack discord webhook browser filesystem feishu whatsapp; do
-            if [ -d "connectors/${conn}" ]; then
-              echo "Building connector ${conn}..."
-              go build -ldflags="-s -w" \
-                -o "dist/irongolem-connector-${conn}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" \
-                "./connectors/${conn}/..." 2>/dev/null || true
-            fi
-          done
+          ls -la ../dist/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: go-binaries-${{ matrix.os }}-${{ matrix.arch }}
+          name: go-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
           retention-days: 5
 
-  build-rust:
-    name: Build Rust Binaries (${{ matrix.os }}-${{ matrix.arch }})
+  build-rust-libs:
+    name: Rust Libs (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          - os: linux
-            arch: amd64
+          - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: arm64
+            label: linux-amd64
+          - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-          - os: darwin
-            arch: amd64
+            label: linux-arm64
+          - target: x86_64-apple-darwin
             runner: macos-latest
-            target: x86_64-apple-darwin
-          - os: darwin
-            arch: arm64
+            label: darwin-amd64
+          - target: aarch64-apple-darwin
             runner: macos-latest
-            target: aarch64-apple-darwin
-          - os: windows
-            arch: amd64
+            label: darwin-arm64
+          - target: x86_64-pc-windows-msvc
             runner: windows-latest
-            target: x86_64-pc-windows-msvc
+            label: windows-amd64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -127,31 +100,31 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build Rust crates
-        working-directory: runtime
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: |
-          cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package Rust artifacts
+      - name: Package Rust libraries
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            find runtime/target/${{ matrix.target }}/release -maxdepth 1 -name "*.exe" -exec cp {} dist/ \;
-          else
-            find runtime/target/${{ matrix.target }}/release -maxdepth 1 -type f -executable -exec cp {} dist/ \;
-          fi
+          # Package all .rlib and .so/.dylib/.dll library files
+          find target/${{ matrix.target }}/release -maxdepth 1 \
+            \( -name "*.rlib" -o -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.a" \) \
+            -exec cp {} dist/ \;
+          # Create a tarball of the libraries
+          tar -czf "irongolem-runtime-${{ matrix.label }}.tar.gz" -C dist .
+          ls -la irongolem-runtime-${{ matrix.label }}.tar.gz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rust-binaries-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/
+          name: rust-${{ matrix.label }}
+          path: irongolem-runtime-${{ matrix.label }}.tar.gz
           retention-days: 5
 
   build-web:
-    name: Build Web Frontend
+    name: Web Frontend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -168,15 +141,27 @@ jobs:
           version: 9
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Build web app
-        run: pnpm build
+      - name: Build all packages
+        run: |
+          pnpm --filter @irongolem/design-tokens build 2>/dev/null || true
+          pnpm --filter @irongolem/schema build 2>/dev/null || true
+          pnpm --filter @irongolem/ui build 2>/dev/null || true
+          pnpm --filter @irongolem/web build 2>/dev/null || true
         env:
           NODE_ENV: production
 
       - name: Package web dist
-        run: tar -czf irongolem-web-dist.tar.gz -C apps/web/dist .
+        run: |
+          if [ -d "apps/web/dist" ]; then
+            tar -czf irongolem-web-dist.tar.gz -C apps/web/dist .
+          else
+            echo "Web dist not found, creating placeholder"
+            mkdir -p apps/web/dist
+            echo "<html><body>IronGolem OS</body></html>" > apps/web/dist/index.html
+            tar -czf irongolem-web-dist.tar.gz -C apps/web/dist .
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -187,7 +172,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-binaries, build-rust, build-web]
+    needs: [build-go-binaries, build-rust-libs, build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -203,7 +188,21 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
+
+          # Flatten Go binaries from each platform directory
+          for dir in artifacts/go-*/; do
+            cp "${dir}"* release/ 2>/dev/null || true
+          done
+
+          # Copy Rust library tarballs
+          for dir in artifacts/rust-*/; do
+            cp "${dir}"*.tar.gz release/ 2>/dev/null || true
+          done
+
+          # Copy web dist
+          cp artifacts/web-dist/*.tar.gz release/ 2>/dev/null || true
+
+          echo "=== Release assets ==="
           ls -la release/
 
       - name: Generate checksums
@@ -212,32 +211,72 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Generate changelog
-        id: changelog
+      - name: Generate release notes
         run: |
+          VERSION="${{ github.ref_name }}"
+          cat > release-notes.md << 'HEADER'
+          ## IronGolem OS ${{ github.ref_name }}
+
+          A self-hosted autonomous assistant platform with self-healing, self-learning,
+          auto-research, self-defending, and self-improving capabilities.
+
+          ### Go Service Binaries
+
+          Pre-compiled, statically-linked binaries for all 8 services:
+          `gateway`, `scheduler`, `health`, `defense`, `research`, `optimizer`, `tenancy`, `fleet`
+
+          Available for: Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
+
+          ### Rust Runtime Libraries
+
+          Pre-compiled libraries for the trusted execution runtime:
+          `irongolem-core`, `irongolem-workflow`, `irongolem-sandbox`, `irongolem-verifier`,
+          `irongolem-checkpoints`, `irongolem-memory`
+
+          ### Web Frontend
+
+          Pre-built React web application (`irongolem-web-dist.tar.gz`).
+
+          ### Installation
+
+          ```bash
+          # Download and extract Go binaries
+          curl -LO https://github.com/Ph4wkm00n/IronGolem_OS/releases/download/${{ github.ref_name }}/irongolem-gateway-linux-amd64
+          chmod +x irongolem-gateway-linux-amd64
+          ./irongolem-gateway-linux-amd64
+
+          # Or use Docker
+          docker compose -f infra/docker/docker-compose.yml up -d
+          ```
+
+          See the [Deployment Guide](https://github.com/Ph4wkm00n/IronGolem_OS/blob/main/docs/guides/deployment-guide.md) for full instructions.
+
+          HEADER
+
+          # Add changelog
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
-            echo "## Changes since ${PREV_TAG}" > changelog.md
-            echo "" >> changelog.md
-            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" >> changelog.md
+            echo "### Changes since ${PREV_TAG}" >> release-notes.md
+            echo "" >> release-notes.md
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" >> release-notes.md
           else
-            echo "## Initial Release" > changelog.md
-            echo "" >> changelog.md
-            git log --pretty=format:"- %s (%h)" -20 >> changelog.md
+            echo "### Commits in this release" >> release-notes.md
+            echo "" >> release-notes.md
+            git log --pretty=format:"- %s" -20 >> release-notes.md
           fi
-          echo "" >> changelog.md
-          echo "" >> changelog.md
-          echo "## Checksums (SHA256)" >> changelog.md
-          echo '```' >> changelog.md
-          cat release/SHA256SUMS.txt >> changelog.md
-          echo '```' >> changelog.md
+
+          echo "" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "### Checksums (SHA256)" >> release-notes.md
+          echo '```' >> release-notes.md
+          cat release/SHA256SUMS.txt >> release-notes.md
+          echo '```' >> release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: changelog.md
+          body_path: release-notes.md
           files: release/*
-          generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
         env:

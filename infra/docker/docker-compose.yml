@@ -5,13 +5,14 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.services
-    command: ["gateway"]
+    command: ["irongolem-gateway"]
     ports:
       - "8080:8080"
     environment:
       - IRONGOLEM_MODE=solo
       - IRONGOLEM_DB_PATH=/data/irongolem.db
       - IRONGOLEM_LOG_LEVEL=info
+      - DEPLOYMENT_MODE=solo
     volumes:
       - irongolem-data:/data
 
@@ -19,7 +20,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.services
-    command: ["scheduler"]
+    command: ["irongolem-scheduler"]
     ports:
       - "8081:8081"
     environment:
@@ -30,7 +31,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.services
-    command: ["health"]
+    command: ["irongolem-health"]
     ports:
       - "8082:8082"
     environment:
@@ -40,9 +41,50 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.services
-    command: ["defense"]
+    command: ["irongolem-defense"]
     ports:
       - "8083:8083"
+    environment:
+      - IRONGOLEM_LOG_LEVEL=info
+
+  research:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["irongolem-research"]
+    ports:
+      - "8085:8085"
+    environment:
+      - IRONGOLEM_LOG_LEVEL=info
+
+  optimizer:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["irongolem-optimizer"]
+    ports:
+      - "8086:8086"
+    environment:
+      - IRONGOLEM_LOG_LEVEL=info
+
+  tenancy:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["irongolem-tenancy"]
+    ports:
+      - "8084:8084"
+    environment:
+      - IRONGOLEM_MODE=solo
+      - IRONGOLEM_LOG_LEVEL=info
+
+  fleet:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["irongolem-fleet"]
+    ports:
+      - "8087:8087"
     environment:
       - IRONGOLEM_LOG_LEVEL=info
 
