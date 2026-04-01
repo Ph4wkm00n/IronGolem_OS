@@ -1,105 +1,140 @@
-# IronGolem OS
+```
+ ___                  ____       _                    ___  ____
+|_ _|_ __ ___  _ __ / ___| ___ | | ___ _ __ ___     / _ \/ ___|
+ | || '__/ _ \| '_ \| |  _ / _ \| |/ _ \ '_ ` _ \  | | | \___ \
+ | || | | (_) | | | | |_| | (_) | |  __/ | | | | | | |_| |___) |
+|___|_|  \___/|_| |_|\____|\___/|_|\___|_| |_| |_|  \___/|____/
 
-> A secure, self-healing autonomous assistant you can host yourself.
+         Self-hosted autonomous assistant platform
+```
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Phase_0_Planning-yellow.svg)](#project-status)
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](#)
+[![Status](https://img.shields.io/badge/Release-v0.1.0-orange.svg)](#changelog)
 
 ## What is IronGolem OS?
 
-IronGolem OS is a self-hosted autonomous assistant platform that operates
-continuously, improves safely over time, explains itself clearly, and defends
-its environment proactively. It is designed to be understandable for non-technical
-users while remaining rigorous enough for operators and security-conscious admins.
+IronGolem OS is a self-hosted autonomous assistant platform you can run on your own hardware. It operates continuously, improves safely over time, explains every action it takes, and defends its environment proactively. Designed for non-technical users who want powerful automation without giving up control, it ships with five governed autonomous loops -- self-healing, self-learning, self-improving, auto-research, and self-defending -- so you get a genuinely self-sustaining assistant with full transparency.
 
-Unlike typical AI assistants, IronGolem OS runs **five governed autonomous loops**
-that make it genuinely self-sustaining:
+## Features
 
-- **Self-Healing** - Detects failures, retries, restores configs, rolls back
-- **Self-Learning** - Learns preferences from your approvals and edits
-- **Self-Improving** - Optimizes prompts, providers, and reasoning depth
-- **Auto-Research** - Tracks topics, fetches sources, detects contradictions
-- **Self-Defending** - Detects injection, sandboxes threats, quarantines risks
-
-## Key Features
-
-- **Recipe Gallery** - Pre-built automation templates with safety summaries
-- **Assistant Squads** - Multi-agent teams (Inbox, Research, Ops, Security)
-- **5-Layer Security** - Gateway, tool policy, agent perms, channel restrictions, admin controls
-- **Knowledge Graph** - Evidence-backed memory with freshness and confidence scoring
-- **Health Center** - Heartbeat monitoring with calm, informative status displays
-- **Multi-Tenant** - Solo (SQLite), Household, and Team (PostgreSQL) deployment modes
-- **Multi-Channel** - Email, Calendar, Telegram, Slack, Discord, WhatsApp, and more
+| Feature | Description |
+|---------|-------------|
+| **Recipe Gallery** | Pre-built automation templates with plain-language safety summaries |
+| **Assistant Squads** | Multi-agent teams (Inbox, Research, Ops, Security, Executive Assistant) |
+| **5-Layer Security** | Gateway identity, tool policy, agent perms, channel restrictions, admin controls |
+| **Knowledge Graph** | Evidence-backed memory with freshness and confidence scoring |
+| **Health Center** | Heartbeat monitoring with calm, informative status displays |
+| **Research Center** | Tracked topics, source fetching, contradiction detection |
+| **Self-Healing** | Automatic failure detection, retries, config restoration, rollback |
+| **Multi-Tenant** | Solo (SQLite), Household, and Team (PostgreSQL) deployment modes |
+| **Multi-Channel** | Email, Calendar, Telegram, Slack, Discord, WhatsApp, and more |
+| **Event Sourcing** | Full audit trail for every autonomous action |
 
 ## Architecture
 
-IronGolem OS uses a three-domain architecture:
+```
+                    +--------------------------+
+                    |    Experience Layer       |
+                    |  TypeScript/React + Tauri |
+                    +------------+-------------+
+                                 |
+              +------------------+------------------+
+              |          Go Control Plane            |
+    +---------+---------+---------+---------+---------+
+    | Gateway | Sched.  | Health  | Defense | Research|
+    | :8080   | :8081   | :8082   | :8083   | :8085   |
+    +---------+---------+---------+---------+---------+
+    | Optim.  | Fleet   | Tenancy |
+    | :8086   | :8087   | :8088   |
+    +---------+---------+---------+
+              |
+    +---------+----------+
+    |    Rust Runtime     |
+    | Plan graphs, WASM,  |
+    | Policy, Checkpoints |
+    +-----+---------+----+
+          |         |
+    +-----+--+ +----+------+
+    | SQLite | | PostgreSQL |
+    | (Solo) | |  (Team)    |
+    +--------+ +-----------+
+```
 
-| Domain | Technology | Responsibility |
-|--------|-----------|---------------|
-| **Trusted Runtime** | Rust | Plan execution, policy enforcement, checkpointing, WASM plugins |
-| **Control Plane** | Go | Gateways, connectors, scheduler, health monitoring, tenancy |
-| **Experience Layer** | TypeScript/React | Web app, Tauri desktop shell, mobile-responsive surfaces |
+## Quick Start
 
-See [Architecture Overview](docs/architecture/overview.md) for details.
+### Docker Compose (recommended)
 
-## Deployment Modes
+```bash
+git clone https://github.com/Ph4wkm00n/IronGolem_OS.git
+cd IronGolem_OS
+docker compose -f infra/docker/docker-compose.yml up -d
+```
 
-| Mode | Database | Use Case |
-|------|----------|----------|
-| Solo | SQLite | Personal desktop assistant |
-| Household | SQLite | Shared family workspace with role boundaries |
-| Team | PostgreSQL | Multi-tenant organization with workspace isolation |
+Open `http://localhost:3000` in your browser. The gateway API is at `http://localhost:8080`.
+
+### Manual Setup
+
+```bash
+# Prerequisites: Rust 1.75+, Go 1.22+, Node 20+, pnpm 9+
+
+# Build everything
+make build
+
+# Run in development mode (Go services + web app)
+make dev
+
+# Or run components individually
+make build-rust       # Rust runtime
+make build-go         # Go services
+make build-web        # Web frontend
+```
+
+See the [Deployment Guide](docs/guides/deployment-guide.md) for Solo, Household, and Team mode instructions.
+
+## Screenshots
+
+> Screenshots will be added after the UI stabilizes. See the [UI/UX Design Guide](docs/specs/05-ui-ux-design-guide-v2.md) for current mockups.
 
 ## Documentation
 
-### Architecture
-- [Architecture Overview](docs/architecture/overview.md)
-- [Rust Runtime](docs/architecture/rust-runtime.md)
-- [Go Control Plane](docs/architecture/go-control-plane.md)
-- [TypeScript Experience](docs/architecture/typescript-experience.md)
-- [Data Layer](docs/architecture/data-layer.md)
-- [Security Model](docs/architecture/security-model.md)
+| Guide | Audience |
+|-------|----------|
+| [User Guide](docs/guides/user-guide.md) | End users and non-technical operators |
+| [Deployment Guide](docs/guides/deployment-guide.md) | System administrators |
+| [API Reference](docs/guides/api-reference.md) | Developers and integrators |
+| [Getting Started](docs/guides/getting-started.md) | New contributors |
+| [Architecture Overview](docs/architecture/overview.md) | Engineers |
+| [Connector Development](docs/guides/connector-development.md) | Plugin authors |
+| [Changelog](docs/CHANGELOG.md) | Everyone |
 
-### Implementation Plan
-- [Implementation Overview](docs/implementation/README.md)
-- [Phases 0-5](docs/implementation/phase-0-alignment.md)
-- [Workstreams](docs/implementation/workstreams.md)
-- [Milestones](docs/implementation/milestones.md)
+### Specifications
 
-### UI/UX Design
-- [Design Overview](docs/design/README.md)
-- [UX Mission & Pillars](docs/design/ux-mission-and-pillars.md)
-- [Design Patterns](docs/design/design-patterns.md)
-
-### Guides
-- [Getting Started](docs/guides/getting-started.md)
-- [Autonomous Loops](docs/guides/autonomous-loops.md)
-- [Connector Development](docs/guides/connector-development.md)
-- [Agent Roles](docs/guides/agent-roles.md)
-
-### Specifications (v2)
 - [Product Requirements](docs/specs/01-product-requirements-document-v2.md)
-- [Features & Modules](docs/specs/02-features-modules-and-agent-loops-v2.md)
+- [Features and Modules](docs/specs/02-features-modules-and-agent-loops-v2.md)
 - [Roadmap](docs/specs/03-roadmap-and-release-plan-v2.md)
 - [Implementation Plan](docs/specs/04-implementation-plan-v2.md)
 - [UI/UX Design Guide](docs/specs/05-ui-ux-design-guide-v2.md)
 - [Handbook](docs/specs/IronGolemOS_handbook.md)
 
-## Project Status
+## Community
 
-**Phase 0: Architecture and Design Alignment** (active)
+- [Contributing Guide](CONTRIBUTING.md) -- how to submit patches and proposals
+- [Code of Conduct](CODE_OF_CONDUCT.md) -- expected behavior in project spaces
+- [Security Policy](SECURITY.md) -- how to report vulnerabilities responsibly
 
-IronGolem OS is in the planning and architecture phase. The product
-requirements, feature specifications, roadmap, implementation plan, and UX
-design guide are complete. Implementation begins in Phase 1.
+## Built With
 
-See the [Roadmap](docs/specs/03-roadmap-and-release-plan-v2.md) for the full
-18-month delivery timeline.
-
-## Contributing
-
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+| Technology | Role |
+|-----------|------|
+| **Rust** | Trusted runtime -- plan graphs, policy enforcement, checkpointing, WASM plugins |
+| **Go** | Control plane -- gateways, connectors, scheduler, health, tenancy APIs |
+| **TypeScript / React** | Web application with Tailwind CSS |
+| **Tauri** | Local-first desktop shell |
+| **SQLite** | Single-user and household storage |
+| **PostgreSQL** | Multi-tenant team storage |
+| **OpenTelemetry** | Observability and tracing |
+| **Docker** | Containerized deployment |
 
 ## License
 

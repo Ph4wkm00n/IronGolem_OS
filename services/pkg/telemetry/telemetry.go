@@ -72,8 +72,12 @@ func NewSpan(ctx context.Context, operation string) (context.Context, *SpanConte
 }
 
 // End records the span duration. In a real implementation this would
-// export the span to the OTLP collector.
+// export the span to the OTLP collector. If logger is nil, the span
+// is silently closed without logging.
 func (sc *SpanContext) End(logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
 	elapsed := time.Since(sc.StartTime)
 	logger.Info("span.end",
 		slog.String("trace_id", sc.TraceID),

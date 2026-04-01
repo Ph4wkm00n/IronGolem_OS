@@ -32,7 +32,7 @@ type Span struct {
 	Status       SpanStatus        `json:"status"`
 	StatusMsg    string            `json:"status_message,omitempty"`
 
-	mu       sync.Mutex
+	mu       sync.Mutex `json:"-"`
 	ended    bool
 	exporter SpanExporter
 }
@@ -55,6 +55,40 @@ func (s *Span) SetStatus(status SpanStatus, msg string) {
 	s.StatusMsg = msg
 }
 
+// SpanData is a copy-safe snapshot of a Span's data, without the mutex.
+// It is used for export and storage to avoid copying sync.Mutex values.
+type SpanData struct {
+	TraceID      string            `json:"trace_id"`
+	SpanID       string            `json:"span_id"`
+	ParentSpanID string            `json:"parent_span_id,omitempty"`
+	Name         string            `json:"name"`
+	StartTime    time.Time         `json:"start_time"`
+	EndTime      time.Time         `json:"end_time,omitempty"`
+	Attributes   map[string]string `json:"attributes,omitempty"`
+	Status       SpanStatus        `json:"status"`
+	StatusMsg    string            `json:"status_message,omitempty"`
+}
+
+// snapshot returns a copy-safe SpanData from this Span.
+// Caller must hold s.mu or ensure no concurrent access.
+func (s *Span) snapshot() SpanData {
+	attrs := make(map[string]string, len(s.Attributes))
+	for k, v := range s.Attributes {
+		attrs[k] = v
+	}
+	return SpanData{
+		TraceID:      s.TraceID,
+		SpanID:       s.SpanID,
+		ParentSpanID: s.ParentSpanID,
+		Name:         s.Name,
+		StartTime:    s.StartTime,
+		EndTime:      s.EndTime,
+		Attributes:   attrs,
+		Status:       s.Status,
+		StatusMsg:    s.StatusMsg,
+	}
+}
+
 // End marks the span as complete and exports it.
 func (s *Span) End() {
 	s.mu.Lock()
@@ -65,14 +99,14 @@ func (s *Span) End() {
 	s.ended = true
 	s.EndTime = time.Now().UTC()
 	if s.exporter != nil {
-		s.exporter.ExportSpan(*s)
+		s.exporter.ExportSpan(s.snapshot())
 	}
 }
 
 // SpanExporter receives completed spans. Implementations may send spans
 // to an OTLP collector, store them in memory, or write them to a log.
 type SpanExporter interface {
-	ExportSpan(span Span)
+	ExportSpan(span SpanData)
 	Shutdown()
 }
 

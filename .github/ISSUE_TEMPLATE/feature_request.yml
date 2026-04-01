@@ -1,0 +1,80 @@
+name: Feature Request
+description: Suggest a new feature or improvement for IronGolem OS
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature. Please fill out the form below so we can evaluate and prioritize your request.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the feature you would like.
+      placeholder: Describe the feature...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe the problem this feature would solve or the use case it enables.
+      placeholder: |
+        As a [type of user], I want [goal] so that [benefit]...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How do you think this feature should work? Include any design ideas or implementation suggestions.
+      placeholder: Describe your proposed solution...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: Describe alternatives you have considered...
+
+  - type: dropdown
+    id: affected-domain
+    attributes:
+      label: Affected Domain
+      description: Which part of IronGolem OS does this feature relate to?
+      multiple: true
+      options:
+        - Runtime (Rust - plan graphs, policies, sandboxing)
+        - Control Plane (Go - gateway, scheduler, health, orchestration)
+        - Frontend (TypeScript/React - web app, desktop shell)
+        - Connectors (email, calendar, messaging integrations)
+        - Infrastructure (deployment, monitoring, scaling)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Suggestion
+      description: How important is this feature to you?
+      options:
+        - Nice to have
+        - Important - would significantly improve my workflow
+        - Critical - blocking my adoption or usage
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, or references for the feature request.
+      placeholder: Add any other context here...

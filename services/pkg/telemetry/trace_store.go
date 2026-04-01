@@ -29,22 +29,22 @@ type TraceInfo struct {
 
 // TraceDetail contains all spans for a single trace.
 type TraceDetail struct {
-	TraceID string `json:"trace_id"`
-	Spans   []Span `json:"spans"`
+	TraceID string     `json:"trace_id"`
+	Spans   []SpanData `json:"spans"`
 }
 
 // InMemoryExporter stores completed spans in memory, indexed by trace ID.
 // It implements SpanExporter and provides query methods for the trace UI.
 type InMemoryExporter struct {
-	mu     sync.RWMutex
-	spans  []Span            // all spans, ordered by arrival
-	byTrace map[string][]int // trace_id -> indices into spans
+	mu      sync.RWMutex
+	spans   []SpanData        // all spans, ordered by arrival
+	byTrace map[string][]int  // trace_id -> indices into spans
 }
 
 // NewInMemoryExporter creates a new in-memory span exporter.
 func NewInMemoryExporter() *InMemoryExporter {
 	return &InMemoryExporter{
-		spans:   make([]Span, 0, 256),
+		spans:   make([]SpanData, 0, 256),
 		byTrace: make(map[string][]int),
 	}
 }
@@ -56,7 +56,7 @@ var (
 )
 
 // ExportSpan records a completed span.
-func (e *InMemoryExporter) ExportSpan(span Span) {
+func (e *InMemoryExporter) ExportSpan(span SpanData) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -185,7 +185,7 @@ func (e *InMemoryExporter) GetTrace(traceID string) *TraceDetail {
 		return nil
 	}
 
-	spans := make([]Span, len(indices))
+	spans := make([]SpanData, len(indices))
 	for i, idx := range indices {
 		spans[i] = e.spans[idx]
 	}

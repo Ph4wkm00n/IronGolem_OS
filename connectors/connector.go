@@ -31,6 +31,7 @@ const (
 	TypeFilesystem ConnectorType = "filesystem"
 	TypeBrowser    ConnectorType = "browser"
 	TypeWebhook    ConnectorType = "webhook"
+	TypeFeishu     ConnectorType = "feishu"
 )
 
 // Message represents a normalized message from any connector.

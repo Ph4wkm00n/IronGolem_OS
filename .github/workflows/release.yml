@@ -1,0 +1,244 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.22"
+  NODE_VERSION: "20"
+
+jobs:
+  build-binaries:
+    name: Build Go Binaries (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            goos: linux
+            goarch: arm64
+          - os: darwin
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+          - os: windows
+            arch: amd64
+            goos: windows
+            goarch: amd64
+            ext: .exe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Go services
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          for svc in gateway scheduler health defense research optimizer tenancy; do
+            echo "Building ${svc}..."
+            go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+              -o "dist/irongolem-${svc}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" \
+              "./services/${svc}/..."
+          done
+
+      - name: Build connectors
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          for conn in email calendar telegram slack discord webhook browser filesystem feishu whatsapp; do
+            if [ -d "connectors/${conn}" ]; then
+              echo "Building connector ${conn}..."
+              go build -ldflags="-s -w" \
+                -o "dist/irongolem-connector-${conn}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" \
+                "./connectors/${conn}/..." 2>/dev/null || true
+            fi
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 5
+
+  build-rust:
+    name: Build Rust Binaries (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build Rust crates
+        working-directory: runtime
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Rust artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            find runtime/target/${{ matrix.target }}/release -maxdepth 1 -name "*.exe" -exec cp {} dist/ \;
+          else
+            find runtime/target/${{ matrix.target }}/release -maxdepth 1 -type f -executable -exec cp {} dist/ \;
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 5
+
+  build-web:
+    name: Build Web Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm build
+        env:
+          NODE_ENV: production
+
+      - name: Package web dist
+        run: tar -czf irongolem-web-dist.tar.gz -C apps/web/dist .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: irongolem-web-dist.tar.gz
+          retention-days: 5
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-binaries, build-rust, build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since ${PREV_TAG}" > changelog.md
+            echo "" >> changelog.md
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" >> changelog.md
+          else
+            echo "## Initial Release" > changelog.md
+            echo "" >> changelog.md
+            git log --pretty=format:"- %s (%h)" -20 >> changelog.md
+          fi
+          echo "" >> changelog.md
+          echo "" >> changelog.md
+          echo "## Checksums (SHA256)" >> changelog.md
+          echo '```' >> changelog.md
+          cat release/SHA256SUMS.txt >> changelog.md
+          echo '```' >> changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: changelog.md
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
