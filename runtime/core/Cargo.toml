@@ -16,3 +16,8 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 rusqlite = { workspace = true }
+postgres = { workspace = true, optional = true }
+
+[features]
+default = []
+postgres = ["dep:postgres"]
