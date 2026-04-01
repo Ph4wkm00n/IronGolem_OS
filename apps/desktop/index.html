@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IronGolem OS</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      #app {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+      }
+      h1 {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+      }
+      p {
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>IronGolem OS</h1>
+      <p>Desktop shell is loading the web application&hellip;</p>
+    </div>
+    <script type="module">
+      // In production, the Tauri shell loads the built web app from dist/.
+      // During development, the devPath (http://localhost:3000) is used instead.
+      import { invoke } from '@tauri-apps/api/tauri';
+
+      window.addEventListener('DOMContentLoaded', async () => {
+        try {
+          const greeting = await invoke('greet', { name: 'User' });
+          console.log(greeting);
+        } catch (e) {
+          console.warn('Tauri invoke not available:', e);
+        }
+      });
+    </script>
+  </body>
+</html>
