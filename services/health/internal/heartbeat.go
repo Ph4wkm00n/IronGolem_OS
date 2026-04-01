@@ -1,440 +1,500 @@
-// Package internal implements the heartbeat manager for the IronGolem OS
-// Health service.
+// Package internal implements heartbeat tracking and self-healing triggers
+// for the IronGolem OS Health service.
 //
-// The heartbeat manager tracks service health through periodic check-ins,
-// detects missed heartbeats, and triggers self-healing actions. Services
-// transition through the following states:
-//
-//	Healthy -> QuietlyRecovering -> NeedsAttention -> Paused -> Quarantined
-//
-// Each transition can trigger automated recovery or escalation.
+// The HeartbeatManager monitors all registered services and agents, detects
+// missed heartbeats, transitions health states, and invokes self-healing
+// actions when services degrade.
 package internal
 
 import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
+
+	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
 )
 
-// ServiceState represents the health state of a monitored service, matching
-// the HeartbeatStatus values from the events package.
-type ServiceState string
+// HeartbeatState maps to the five heartbeat states defined in the IronGolem
+// OS specification.
+type HeartbeatState string
 
 const (
-	StateHealthy           ServiceState = "healthy"
-	StateQuietlyRecovering ServiceState = "quietly_recovering"
-	StateNeedsAttention    ServiceState = "needs_attention"
-	StatePaused            ServiceState = "paused"
-	StateQuarantined       ServiceState = "quarantined"
+	StateHealthy           HeartbeatState = "healthy"
+	StateQuietlyRecovering HeartbeatState = "quietly_recovering"
+	StateNeedsAttention    HeartbeatState = "needs_attention"
+	StatePaused            HeartbeatState = "paused"
+	StateQuarantined       HeartbeatState = "quarantined"
 )
 
-// Thresholds for state transitions.
-const (
-	// HeartbeatInterval is the expected time between heartbeats.
-	HeartbeatInterval = 15 * time.Second
+// HeartbeatConfig holds tunable parameters for the heartbeat monitor.
+type HeartbeatConfig struct {
+	// Timeout is the maximum duration between heartbeats before a service
+	// is considered unhealthy. Default: 30s.
+	Timeout time.Duration
 
-	// MissedThresholdRecovering is how many missed heartbeats before moving
-	// from Healthy to QuietlyRecovering.
-	MissedThresholdRecovering = 2
+	// CheckInterval is how often the monitor evaluates all services.
+	// Default: 10s.
+	CheckInterval time.Duration
 
-	// MissedThresholdAttention is the threshold for NeedsAttention.
-	MissedThresholdAttention = 5
+	// QuietRecoveryWindow is how long a service stays in QuietlyRecovering
+	// before being promoted back to Healthy. Default: 60s.
+	QuietRecoveryWindow time.Duration
 
-	// MissedThresholdQuarantine is the threshold for Quarantined.
-	MissedThresholdQuarantine = 10
-)
+	// AttentionThreshold is the number of consecutive missed heartbeats
+	// before transitioning from QuietlyRecovering to NeedsAttention.
+	// Default: 3.
+	AttentionThreshold int
 
-// HealingAction represents an automated recovery action.
-type HealingAction string
-
-const (
-	HealingRestart       HealingAction = "restart"
-	HealingScaleUp       HealingAction = "scale_up"
-	HealingFailover      HealingAction = "failover"
-	HealingNotifyAdmin   HealingAction = "notify_admin"
-	HealingQuarantine    HealingAction = "quarantine"
-)
-
-// ServiceRecord holds the tracked state for a single monitored service.
-type ServiceRecord struct {
-	Name            string        `json:"name"`
-	State           ServiceState  `json:"state"`
-	LastHeartbeat   time.Time     `json:"last_heartbeat"`
-	MissedBeats     int           `json:"missed_beats"`
-	ConsecutiveOK   int           `json:"consecutive_ok"`
-	RegisteredAt    time.Time     `json:"registered_at"`
-	Message         string        `json:"message,omitempty"`
-	HealingActions  []HealingLog  `json:"healing_actions,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
+	// QuarantineThreshold is the number of consecutive missed heartbeats
+	// before transitioning to Quarantined. Default: 10.
+	QuarantineThreshold int
 }
 
-// HealingLog records an automated healing action taken on a service.
-type HealingLog struct {
-	Action    HealingAction `json:"action"`
-	Timestamp time.Time     `json:"timestamp"`
-	Reason    string        `json:"reason"`
-	Success   bool          `json:"success"`
-}
-
-// HeartbeatRequest is the payload services send to report their health.
-type HeartbeatRequest struct {
-	ServiceName string         `json:"service_name"`
-	Status      string         `json:"status"`
-	Uptime      time.Duration  `json:"uptime_ns"`
-	Metrics     map[string]any `json:"metrics,omitempty"`
-	Message     string         `json:"message,omitempty"`
-}
-
-// HeartbeatManager tracks service health, detects missed heartbeats, and
-// triggers self-healing actions.
-type HeartbeatManager struct {
-	mu       sync.RWMutex
-	services map[string]*ServiceRecord
-	logger   *slog.Logger
-}
-
-// NewHeartbeatManager creates a new HeartbeatManager.
-func NewHeartbeatManager(logger *slog.Logger) *HeartbeatManager {
-	return &HeartbeatManager{
-		services: make(map[string]*ServiceRecord),
-		logger:   logger,
+func (c *HeartbeatConfig) applyDefaults() {
+	if c.Timeout <= 0 {
+		c.Timeout = 30 * time.Second
+	}
+	if c.CheckInterval <= 0 {
+		c.CheckInterval = 10 * time.Second
+	}
+	if c.QuietRecoveryWindow <= 0 {
+		c.QuietRecoveryWindow = 60 * time.Second
+	}
+	if c.AttentionThreshold <= 0 {
+		c.AttentionThreshold = 3
+	}
+	if c.QuarantineThreshold <= 0 {
+		c.QuarantineThreshold = 10
 	}
 }
 
-// RecordHeartbeat processes a heartbeat from a service, registering it if
-// new or updating its state if known.
-func (m *HeartbeatManager) RecordHeartbeat(req HeartbeatRequest) {
+// ServiceRecord holds the health tracking state for a single service or agent.
+type ServiceRecord struct {
+	ServiceName   string         `json:"service_name"`
+	State         HeartbeatState `json:"state"`
+	LastHeartbeat time.Time      `json:"last_heartbeat"`
+	LastStatus    string         `json:"last_status"`
+	MissedBeats   int            `json:"missed_beats"`
+	RecoveredAt   *time.Time     `json:"recovered_at,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	Metrics       map[string]any `json:"metrics,omitempty"`
+	RegisteredAt  time.Time      `json:"registered_at"`
+	HealingCount  int            `json:"healing_count"`
+	LastHealingAt *time.Time     `json:"last_healing_at,omitempty"`
+}
+
+// SelfHealingTrigger is invoked when a service's health deteriorates beyond
+// the quiet-recovery threshold. Implementations perform corrective actions
+// such as restarting services, reallocating resources, or notifying operators.
+type SelfHealingTrigger interface {
+	// OnServiceDegraded is called when a service transitions to NeedsAttention.
+	OnServiceDegraded(ctx context.Context, record ServiceRecord) error
+
+	// OnServiceQuarantined is called when a service transitions to Quarantined.
+	OnServiceQuarantined(ctx context.Context, record ServiceRecord) error
+
+	// OnServiceRecovered is called when a service returns to Healthy.
+	OnServiceRecovered(ctx context.Context, record ServiceRecord) error
+}
+
+// SystemSummaryResponse is the response for the overall health endpoint.
+type SystemSummaryResponse struct {
+	OverallState  HeartbeatState    `json:"overall_state"`
+	TotalServices int               `json:"total_services"`
+	Healthy       int               `json:"healthy"`
+	Recovering    int               `json:"recovering"`
+	NeedAttention int               `json:"need_attention"`
+	Paused        int               `json:"paused"`
+	Quarantined   int               `json:"quarantined"`
+	CheckedAt     time.Time         `json:"checked_at"`
+	ServiceStates map[string]string `json:"service_states"`
+}
+
+// HeartbeatManager tracks heartbeats for all services and agents, detects
+// missed beats, and triggers self-healing when appropriate.
+type HeartbeatManager struct {
+	mu      sync.RWMutex
+	records map[string]*ServiceRecord
+	config  HeartbeatConfig
+	logger  *slog.Logger
+	healer  SelfHealingTrigger
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
+}
+
+// NewHeartbeatManager creates a HeartbeatManager with the given configuration.
+func NewHeartbeatManager(logger *slog.Logger, config HeartbeatConfig) *HeartbeatManager {
+	config.applyDefaults()
+	return &HeartbeatManager{
+		records: make(map[string]*ServiceRecord),
+		config:  config,
+		logger:  logger,
+		healer:  &logOnlyHealer{logger: logger},
+		stopCh:  make(chan struct{}),
+	}
+}
+
+// SetHealer replaces the self-healing trigger implementation.
+func (m *HeartbeatManager) SetHealer(healer SelfHealingTrigger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.healer = healer
+}
+
+// RecordHeartbeat processes an incoming heartbeat from a service.
+func (m *HeartbeatManager) RecordHeartbeat(ctx context.Context, payload events.HeartbeatPayload) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now().UTC()
+	rec, exists := m.records[payload.ServiceName]
 
-	rec, exists := m.services[req.ServiceName]
 	if !exists {
 		rec = &ServiceRecord{
-			Name:         req.ServiceName,
+			ServiceName:  payload.ServiceName,
 			State:        StateHealthy,
 			RegisteredAt: now,
-			Metadata:     make(map[string]any),
 		}
-		m.services[req.ServiceName] = rec
-		m.logger.Info("service registered",
-			slog.String("service", req.ServiceName),
+		m.records[payload.ServiceName] = rec
+		m.logger.InfoContext(ctx, "new service registered",
+			slog.String("service", payload.ServiceName),
 		)
 	}
 
 	rec.LastHeartbeat = now
-	rec.MissedBeats = 0
-	rec.ConsecutiveOK++
-	rec.Metadata = req.Metrics
+	rec.LastStatus = string(payload.Status)
+	rec.Metrics = payload.Metrics
+	rec.Message = payload.Message
 
-	// Transition logic: recovering services need consecutive OKs to go healthy.
+	// If the service was degraded and is now checking in, transition to
+	// quietly recovering.
 	switch rec.State {
-	case StateQuietlyRecovering:
-		if rec.ConsecutiveOK >= 3 {
-			rec.State = StateHealthy
-			rec.Message = "recovered"
-			m.logger.Info("service recovered",
-				slog.String("service", req.ServiceName),
-			)
-		}
-	case StateNeedsAttention:
+	case StateNeedsAttention, StateQuarantined:
 		rec.State = StateQuietlyRecovering
-		rec.ConsecutiveOK = 1
-		rec.Message = "heartbeat resumed, recovering"
-		m.logger.Info("service starting recovery",
-			slog.String("service", req.ServiceName),
+		rec.RecoveredAt = &now
+		rec.MissedBeats = 0
+		rec.Message = "heartbeat resumed; entering quiet recovery"
+		m.logger.InfoContext(ctx, "service entering quiet recovery",
+			slog.String("service", payload.ServiceName),
 		)
+	case StateQuietlyRecovering:
+		// Stay in recovering; the monitor loop will promote to healthy
+		// after the recovery window.
+		rec.MissedBeats = 0
 	case StatePaused:
-		// Paused services need to be explicitly resumed.
-	case StateQuarantined:
-		// Quarantined services need admin intervention.
+		// Paused services resume to quietly recovering.
+		rec.State = StateQuietlyRecovering
+		rec.RecoveredAt = &now
+		rec.MissedBeats = 0
 	default:
 		rec.State = StateHealthy
-		rec.Message = ""
+		rec.MissedBeats = 0
 	}
 }
 
-// GetService returns the current record for a service.
-func (m *HeartbeatManager) GetService(name string) (*ServiceRecord, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// PauseService manually pauses monitoring for a service.
+func (m *HeartbeatManager) PauseService(ctx context.Context, serviceName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	rec, ok := m.services[name]
+	rec, ok := m.records[serviceName]
 	if !ok {
-		return nil, false
+		return errServiceNotFound(serviceName)
 	}
-	cp := *rec
-	return &cp, true
+
+	rec.State = StatePaused
+	rec.Message = "manually paused"
+	m.logger.InfoContext(ctx, "service paused",
+		slog.String("service", serviceName),
+	)
+	return nil
 }
 
-// ListServices returns a snapshot of all monitored services.
-func (m *HeartbeatManager) ListServices() []ServiceRecord {
+// QuarantineService manually quarantines a service.
+func (m *HeartbeatManager) QuarantineService(ctx context.Context, serviceName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	rec, ok := m.records[serviceName]
+	if !ok {
+		return errServiceNotFound(serviceName)
+	}
+
+	rec.State = StateQuarantined
+	rec.Message = "manually quarantined"
+	m.logger.InfoContext(ctx, "service quarantined",
+		slog.String("service", serviceName),
+	)
+	return nil
+}
+
+// ListAll returns a snapshot of all service records.
+func (m *HeartbeatManager) ListAll(_ context.Context) []ServiceRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := make([]ServiceRecord, 0, len(m.services))
-	for _, r := range m.services {
-		result = append(result, *r)
+	result := make([]ServiceRecord, 0, len(m.records))
+	for _, rec := range m.records {
+		result = append(result, *rec)
 	}
 	return result
 }
 
-// PauseService transitions a service to the Paused state. Paused services
-// are excluded from healing actions and alerting.
-func (m *HeartbeatManager) PauseService(name string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// SystemSummary returns an aggregate health view of all monitored services.
+func (m *HeartbeatManager) SystemSummary(_ context.Context) SystemSummaryResponse {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	rec, ok := m.services[name]
-	if !ok {
-		return errServiceNotFound
+	summary := SystemSummaryResponse{
+		TotalServices: len(m.records),
+		CheckedAt:     time.Now().UTC(),
+		ServiceStates: make(map[string]string, len(m.records)),
 	}
 
-	rec.State = StatePaused
-	rec.Message = "paused by operator"
-	m.logger.Info("service paused", slog.String("service", name))
-	return nil
-}
-
-// ResumeService transitions a service out of the Paused state back to
-// QuietlyRecovering so it can prove health before being marked Healthy.
-func (m *HeartbeatManager) ResumeService(name string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	rec, ok := m.services[name]
-	if !ok {
-		return errServiceNotFound
+	for name, rec := range m.records {
+		summary.ServiceStates[name] = string(rec.State)
+		switch rec.State {
+		case StateHealthy:
+			summary.Healthy++
+		case StateQuietlyRecovering:
+			summary.Recovering++
+		case StateNeedsAttention:
+			summary.NeedAttention++
+		case StatePaused:
+			summary.Paused++
+		case StateQuarantined:
+			summary.Quarantined++
+		}
 	}
 
-	if rec.State != StatePaused {
-		return errNotPaused
+	// Overall state is the worst state across all services.
+	switch {
+	case summary.Quarantined > 0:
+		summary.OverallState = StateQuarantined
+	case summary.NeedAttention > 0:
+		summary.OverallState = StateNeedsAttention
+	case summary.Recovering > 0:
+		summary.OverallState = StateQuietlyRecovering
+	case summary.Paused > 0 && summary.Healthy == 0:
+		summary.OverallState = StatePaused
+	default:
+		summary.OverallState = StateHealthy
 	}
 
-	rec.State = StateQuietlyRecovering
-	rec.ConsecutiveOK = 0
-	rec.Message = "resumed, waiting for heartbeats"
-	m.logger.Info("service resumed", slog.String("service", name))
-	return nil
+	return summary
 }
 
-var (
-	errServiceNotFound = &serviceError{msg: "service not found", code: http.StatusNotFound}
-	errNotPaused       = &serviceError{msg: "service is not paused", code: http.StatusConflict}
-)
-
-type serviceError struct {
-	msg  string
-	code int
-}
-
-func (e *serviceError) Error() string { return e.msg }
-func (e *serviceError) HTTPCode() int { return e.code }
-
-// Run starts the background loop that checks for missed heartbeats and
-// triggers state transitions and healing actions.
+// Run starts the background monitoring loop. It blocks until the context
+// is cancelled or Stop is called.
 func (m *HeartbeatManager) Run(ctx context.Context) {
-	ticker := time.NewTicker(HeartbeatInterval)
+	m.wg.Add(1)
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(m.config.CheckInterval)
 	defer ticker.Stop()
 
 	m.logger.Info("heartbeat monitor started",
-		slog.Duration("interval", HeartbeatInterval),
+		slog.Duration("timeout", m.config.Timeout),
+		slog.Duration("check_interval", m.config.CheckInterval),
 	)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-ticker.C:
-			m.evaluate(now.UTC())
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.evaluate(ctx)
 		}
 	}
 }
 
-// evaluate checks all services for missed heartbeats and transitions
-// their states accordingly, triggering healing actions when needed.
-func (m *HeartbeatManager) evaluate(now time.Time) {
+// Stop signals the monitor loop to exit and waits for it to finish.
+func (m *HeartbeatManager) Stop() {
+	select {
+	case <-m.stopCh:
+	default:
+		close(m.stopCh)
+	}
+	m.wg.Wait()
+}
+
+// evaluate checks all service records for missed heartbeats and transitions
+// their states accordingly.
+func (m *HeartbeatManager) evaluate(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for name, rec := range m.services {
-		if rec.State == StatePaused || rec.State == StateQuarantined {
+	now := time.Now().UTC()
+
+	for name, rec := range m.records {
+		if rec.State == StatePaused {
 			continue
 		}
 
 		elapsed := now.Sub(rec.LastHeartbeat)
-		expectedBeats := int(elapsed / HeartbeatInterval)
 
-		if expectedBeats <= 0 {
-			continue
-		}
-
-		rec.MissedBeats = expectedBeats
-		rec.ConsecutiveOK = 0
-
-		switch {
-		case rec.MissedBeats >= MissedThresholdQuarantine:
-			if rec.State != StateQuarantined {
-				rec.State = StateQuarantined
-				rec.Message = "quarantined: too many missed heartbeats"
-				m.triggerHealing(rec, HealingQuarantine, "exceeded quarantine threshold")
-				m.logger.Error("service quarantined",
-					slog.String("service", name),
-					slog.Int("missed_beats", rec.MissedBeats),
-				)
-			}
-
-		case rec.MissedBeats >= MissedThresholdAttention:
-			if rec.State != StateNeedsAttention {
-				rec.State = StateNeedsAttention
-				rec.Message = "needs attention: multiple missed heartbeats"
-				m.triggerHealing(rec, HealingNotifyAdmin, "exceeded attention threshold")
-				m.triggerHealing(rec, HealingRestart, "attempting automatic restart")
-				m.logger.Warn("service needs attention",
-					slog.String("service", name),
-					slog.Int("missed_beats", rec.MissedBeats),
-				)
-			}
-
-		case rec.MissedBeats >= MissedThresholdRecovering:
-			if rec.State == StateHealthy {
+		switch rec.State {
+		case StateHealthy:
+			if elapsed > m.config.Timeout {
+				rec.MissedBeats++
 				rec.State = StateQuietlyRecovering
-				rec.Message = "recovering: heartbeat delayed"
-				m.logger.Info("service entering quiet recovery",
+				rec.Message = "missed heartbeat; entering quiet recovery"
+				m.logger.WarnContext(ctx, "service missed heartbeat",
 					slog.String("service", name),
-					slog.Int("missed_beats", rec.MissedBeats),
+					slog.Duration("silence", elapsed),
+				)
+			}
+
+		case StateQuietlyRecovering:
+			if elapsed > m.config.Timeout {
+				rec.MissedBeats++
+				if rec.MissedBeats >= m.config.AttentionThreshold {
+					rec.State = StateNeedsAttention
+					rec.Message = "multiple missed heartbeats"
+					m.logger.WarnContext(ctx, "service needs attention",
+						slog.String("service", name),
+						slog.Int("missed_beats", rec.MissedBeats),
+					)
+					// Trigger self-healing.
+					rec.HealingCount++
+					healTime := now
+					rec.LastHealingAt = &healTime
+					m.triggerHealing(ctx, *rec, false)
+				}
+			} else if rec.RecoveredAt != nil && now.Sub(*rec.RecoveredAt) > m.config.QuietRecoveryWindow {
+				// Promote back to healthy after sustained recovery.
+				rec.State = StateHealthy
+				rec.RecoveredAt = nil
+				rec.MissedBeats = 0
+				rec.Message = ""
+				m.logger.InfoContext(ctx, "service promoted to healthy",
+					slog.String("service", name),
+				)
+				m.triggerRecovered(ctx, *rec)
+			}
+
+		case StateNeedsAttention:
+			if elapsed > m.config.Timeout {
+				rec.MissedBeats++
+				if rec.MissedBeats >= m.config.QuarantineThreshold {
+					rec.State = StateQuarantined
+					rec.Message = "quarantined due to prolonged absence"
+					m.logger.ErrorContext(ctx, "service quarantined",
+						slog.String("service", name),
+						slog.Int("missed_beats", rec.MissedBeats),
+					)
+					rec.HealingCount++
+					healTime := now
+					rec.LastHealingAt = &healTime
+					m.triggerHealing(ctx, *rec, true)
+				}
+			}
+
+		case StateQuarantined:
+			// Quarantined services stay quarantined until a heartbeat arrives
+			// (handled in RecordHeartbeat) or manual intervention.
+		}
+	}
+}
+
+// triggerHealing invokes the self-healing interface. The caller holds the
+// lock, so we snapshot the record and fire asynchronously.
+func (m *HeartbeatManager) triggerHealing(ctx context.Context, rec ServiceRecord, quarantined bool) {
+	payload, _ := json.Marshal(map[string]any{
+		"service":      rec.ServiceName,
+		"state":        rec.State,
+		"missed_beats": rec.MissedBeats,
+		"quarantined":  quarantined,
+	})
+	evt := events.NewEvent(events.EventKindHealingTriggered, "", "health", payload)
+	m.logger.InfoContext(ctx, "self-healing triggered",
+		slog.String("event_id", evt.ID),
+		slog.String("service", rec.ServiceName),
+		slog.Bool("quarantined", quarantined),
+	)
+
+	go func() {
+		if quarantined {
+			if err := m.healer.OnServiceQuarantined(ctx, rec); err != nil {
+				m.logger.ErrorContext(ctx, "quarantine healing failed",
+					slog.String("service", rec.ServiceName),
+					slog.String("error", err.Error()),
+				)
+			}
+		} else {
+			if err := m.healer.OnServiceDegraded(ctx, rec); err != nil {
+				m.logger.ErrorContext(ctx, "degraded healing failed",
+					slog.String("service", rec.ServiceName),
+					slog.String("error", err.Error()),
 				)
 			}
 		}
-	}
+	}()
 }
 
-// triggerHealing records a healing action. In production this would
-// actually invoke the action (restart container, notify admin, etc.).
-func (m *HeartbeatManager) triggerHealing(rec *ServiceRecord, action HealingAction, reason string) {
-	entry := HealingLog{
-		Action:    action,
-		Timestamp: time.Now().UTC(),
-		Reason:    reason,
-		Success:   true, // Placeholder; real impl would track outcome.
-	}
-	rec.HealingActions = append(rec.HealingActions, entry)
-
-	m.logger.Info("healing action triggered",
-		slog.String("service", rec.Name),
-		slog.String("action", string(action)),
-		slog.String("reason", reason),
+// triggerRecovered notifies the healer that a service recovered.
+func (m *HeartbeatManager) triggerRecovered(ctx context.Context, rec ServiceRecord) {
+	payload, _ := json.Marshal(map[string]string{
+		"service": rec.ServiceName,
+	})
+	evt := events.NewEvent(events.EventKindHealingResolved, "", "health", payload)
+	m.logger.InfoContext(ctx, "service recovery confirmed",
+		slog.String("event_id", evt.ID),
+		slog.String("service", rec.ServiceName),
 	)
+
+	go func() {
+		if err := m.healer.OnServiceRecovered(ctx, rec); err != nil {
+			m.logger.ErrorContext(ctx, "recovery notification failed",
+				slog.String("service", rec.ServiceName),
+				slog.String("error", err.Error()),
+			)
+		}
+	}()
 }
 
-// --- HTTP Handlers ---
+func errServiceNotFound(name string) error {
+	return &serviceNotFoundError{name: name}
+}
 
-// Handler provides HTTP handlers for the health service API.
-type Handler struct {
+type serviceNotFoundError struct {
+	name string
+}
+
+func (e *serviceNotFoundError) Error() string {
+	return "service not found: " + e.name
+}
+
+// logOnlyHealer is the default SelfHealingTrigger that only logs events.
+// In production, this is replaced by an implementation that can restart
+// services, reassign agents, or notify administrators.
+type logOnlyHealer struct {
 	logger *slog.Logger
-	mgr    *HeartbeatManager
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(logger *slog.Logger, mgr *HeartbeatManager) *Handler {
-	return &Handler{logger: logger, mgr: mgr}
+func (h *logOnlyHealer) OnServiceDegraded(ctx context.Context, rec ServiceRecord) error {
+	h.logger.WarnContext(ctx, "healing: service degraded (log-only)",
+		slog.String("service", rec.ServiceName),
+		slog.Int("missed_beats", rec.MissedBeats),
+	)
+	return nil
 }
 
-// HealthCheck responds with the service health status.
-func (h *Handler) HealthCheck(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"service": "health",
-		"time":    time.Now().UTC(),
-	})
+func (h *logOnlyHealer) OnServiceQuarantined(ctx context.Context, rec ServiceRecord) error {
+	h.logger.ErrorContext(ctx, "healing: service quarantined (log-only)",
+		slog.String("service", rec.ServiceName),
+		slog.Int("missed_beats", rec.MissedBeats),
+	)
+	return nil
 }
 
-// RecordHeartbeat handles POST /api/v1/heartbeats.
-func (h *Handler) RecordHeartbeat(w http.ResponseWriter, r *http.Request) {
-	var req HeartbeatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	if req.ServiceName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "service_name is required",
-		})
-		return
-	}
-
-	h.mgr.RecordHeartbeat(req)
-
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
-	})
-}
-
-// ListServices handles GET /api/v1/services.
-func (h *Handler) ListServices(w http.ResponseWriter, _ *http.Request) {
-	services := h.mgr.ListServices()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"services": services,
-		"count":    len(services),
-	})
-}
-
-// ServiceStatus handles GET /api/v1/services/{name}/status.
-func (h *Handler) ServiceStatus(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	rec, ok := h.mgr.GetService(name)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "service not found",
-		})
-		return
-	}
-	writeJSON(w, http.StatusOK, rec)
-}
-
-// PauseService handles POST /api/v1/services/{name}/pause.
-func (h *Handler) PauseService(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := h.mgr.PauseService(name); err != nil {
-		code := http.StatusInternalServerError
-		if se, ok := err.(*serviceError); ok {
-			code = se.HTTPCode()
-		}
-		writeJSON(w, code, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"service": name,
-		"state":   string(StatePaused),
-	})
-}
-
-// ResumeService handles POST /api/v1/services/{name}/resume.
-func (h *Handler) ResumeService(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := h.mgr.ResumeService(name); err != nil {
-		code := http.StatusInternalServerError
-		if se, ok := err.(*serviceError); ok {
-			code = se.HTTPCode()
-		}
-		writeJSON(w, code, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"service": name,
-		"state":   string(StateQuietlyRecovering),
-	})
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+func (h *logOnlyHealer) OnServiceRecovered(ctx context.Context, rec ServiceRecord) error {
+	h.logger.InfoContext(ctx, "healing: service recovered (log-only)",
+		slog.String("service", rec.ServiceName),
+	)
+	return nil
 }
