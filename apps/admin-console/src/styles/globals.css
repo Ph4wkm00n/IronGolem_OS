@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Semantic colors — safe */
+    --color-safe-bg: #ecfdf5;
+    --color-safe-bg-hover: #d1fae5;
+    --color-safe-border: #6ee7b7;
+    --color-safe-text: #065f46;
+    --color-safe-solid: #10b981;
+    --color-safe-solid-hover: #059669;
+
+    /* Semantic colors — warning */
+    --color-warning-bg: #fffbeb;
+    --color-warning-bg-hover: #fef3c7;
+    --color-warning-border: #fcd34d;
+    --color-warning-text: #92400e;
+    --color-warning-solid: #f59e0b;
+    --color-warning-solid-hover: #d97706;
+
+    /* Semantic colors — blocked */
+    --color-blocked-bg: #fef2f2;
+    --color-blocked-bg-hover: #fee2e2;
+    --color-blocked-border: #fca5a5;
+    --color-blocked-text: #991b1b;
+    --color-blocked-solid: #ef4444;
+    --color-blocked-solid-hover: #dc2626;
+
+    /* Semantic colors — recovered */
+    --color-recovered-bg: #eff6ff;
+    --color-recovered-bg-hover: #dbeafe;
+    --color-recovered-border: #93c5fd;
+    --color-recovered-text: #1e40af;
+    --color-recovered-solid: #3b82f6;
+    --color-recovered-solid-hover: #2563eb;
+
+    /* Semantic colors — quarantined */
+    --color-quarantined-bg: #fdf4ff;
+    --color-quarantined-bg-hover: #fae8ff;
+    --color-quarantined-border: #d8b4fe;
+    --color-quarantined-text: #6b21a8;
+    --color-quarantined-solid: #a855f7;
+    --color-quarantined-solid-hover: #9333ea;
+
+    /* Semantic colors — neutral */
+    --color-neutral-bg: #f9fafb;
+    --color-neutral-bg-hover: #f3f4f6;
+    --color-neutral-border: #d1d5db;
+    --color-neutral-text: #111827;
+    --color-neutral-solid: #6b7280;
+    --color-neutral-solid-hover: #4b5563;
+
+    /* Semantic colors — accent */
+    --color-accent-bg: #eef2ff;
+    --color-accent-bg-hover: #e0e7ff;
+    --color-accent-border: #a5b4fc;
+    --color-accent-text: #3730a3;
+    --color-accent-solid: #6366f1;
+    --color-accent-solid-hover: #4f46e5;
+
+    /* Typography */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace;
+
+    /* Spacing base */
+    --space-unit: 4px;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-neutral-text);
+    background-color: var(--color-neutral-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-4;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-neutral-900 tracking-tight;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-neutral-900 tracking-tight;
+  }
+
+  .card {
+    @apply rounded-lg border border-neutral-200 bg-white shadow-sm;
+  }
+
+  .card-padded {
+    @apply card p-3 sm:p-4;
+  }
+}

@@ -8,6 +8,7 @@ pub mod event;
 pub mod plan;
 pub mod policy;
 pub mod risk;
+pub mod pg_store;
 pub mod store;
 pub mod types;
 
@@ -18,3 +19,6 @@ pub use policy::{Action, Permission, PolicyDecision};
 pub use risk::{RiskLevel, RiskMetadata};
 pub use store::{EventStore, SqliteEventStore};
 pub use types::{AgentId, ChannelId, ConnectorId, SessionId, TenantId, UserId, WorkspaceId};
+
+#[cfg(feature = "postgres")]
+pub use pg_store::PgEventStore;
