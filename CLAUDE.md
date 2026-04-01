@@ -101,3 +101,75 @@ These are the source-of-truth documents. Always consult them for authoritative d
 - **Five Loops**: Self-healing, self-learning, self-improving, auto-research, self-defending
 - **Heartbeats**: Periodic health check-ins with states: Healthy, Quietly Recovering, Needs Attention, Paused, Quarantined
 - **Deployment Modes**: Solo (SQLite), Household (shared SQLite), Team (PostgreSQL multi-tenant)
+
+## Common Development Commands
+
+### Build
+
+```bash
+make build              # Build all (Rust + Go + TypeScript)
+make build-rust         # cargo build --workspace
+make build-go           # cd services && go build ./...
+make build-web          # Build design-tokens, schema, ui, then web app
+make build-connectors   # cd connectors && go build ./...
+```
+
+### Run in Development
+
+```bash
+make dev                # Start gateway + web app concurrently
+make dev-go             # Gateway only (port 8080)
+make dev-web            # Web frontend only (port 3000)
+```
+
+### Docker
+
+```bash
+make docker-build       # Build all container images
+make docker-up          # Start all services via Docker Compose
+make docker-down        # Stop all services
+```
+
+### Lint and Format
+
+```bash
+make lint               # Lint all (Rust + Go + TypeScript)
+make lint-rust          # cargo clippy + cargo fmt --check
+make lint-go            # go vet
+make lint-web           # pnpm lint
+```
+
+## Running Tests
+
+```bash
+make test               # Run all tests
+make test-rust          # cargo test --workspace
+make test-go            # cd services && go test ./... -v
+make test-web           # pnpm test
+make test-connectors    # cd connectors && go test ./... -v
+```
+
+## How to Add a New Connector
+
+1. Create a directory: `connectors/<name>/`
+2. Implement the connector interface (see `docs/guides/connector-development.md`):
+   - Event normalization (convert external events to IronGolem format)
+   - Token lifecycle (manage auth credentials)
+   - Health signals (emit heartbeat data)
+   - Policy boundaries (enforce connector-specific restrictions)
+3. Register the connector in `connectors/registry.go`
+4. Add tests: `connectors/<name>/<name>_test.go`
+5. Build and verify: `make build-connectors && make test-connectors`
+
+## How to Add a New Service
+
+1. Create the service directory: `services/<name>/`
+2. Add the entry point: `services/<name>/cmd/main.go`
+3. Implement the standard patterns:
+   - Accept `context.Context` for cancellation and tenant isolation
+   - Expose `/healthz` endpoint
+   - Use structured logging (`slog`)
+   - Emit OpenTelemetry spans for key operations
+4. Add a service block to `infra/docker/docker-compose.yml`
+5. Add build/test targets to the `Makefile` if needed
+6. Document the API endpoints in `docs/guides/api-reference.md`

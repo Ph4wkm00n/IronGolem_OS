@@ -36,11 +36,8 @@ impl PlanEngine {
             description: plan.description.clone(),
         }).await;
 
-        loop {
-            let next_node_id = match plan.next_pending_node() {
-                Some(node) => node.id,
-                None => break,
-            };
+        while let Some(next_node) = plan.next_pending_node() {
+            let next_node_id = next_node.id;
 
             // Check if dependencies are satisfied
             let node = plan.find_node(next_node_id)

@@ -4,11 +4,13 @@
  | || '__/ _ \| '_ \| |  _ / _ \| |/ _ \ '_ ` _ \  | | | \___ \
  | || | | (_) | | | | |_| | (_) | |  __/ | | | | | | |_| |___) |
 |___|_|  \___/|_| |_|\____|\___/|_|\___|_| |_| |_|  \___/|____/
+
+         Self-hosted autonomous assistant platform
 ```
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](#)
-[![Status](https://img.shields.io/badge/Release-v0.1.0-orange.svg)](#project-status)
+[![Status](https://img.shields.io/badge/Release-v0.1.0-orange.svg)](#changelog)
 
 ## What is IronGolem OS?
 
@@ -32,32 +34,31 @@ IronGolem OS is a self-hosted autonomous assistant platform you can run on your 
 ## Architecture
 
 ```
-                         +---------------------+
-                         |   Experience Layer   |
-                         |  TypeScript / React  |
-                         |   Tauri Desktop App  |
-                         +---------+-----------+
-                                   |
-                    +--------------+--------------+
-                    |       Go Control Plane       |
-          +---------+---------+---------+---------+---------+
-          | Gateway | Sched.  | Health  | Defense | Research|
-          | :8080   | :8081   | :8082   | :8083   | :8085   |
-          +---------+---------+---------+---------+---------+
-          | Optim.  | Fleet   | Tenancy |
-          | :8086   | :8087   | :8088   |
-          +---------+---------+---------+
-                    |
-          +---------+---------+
-          |   Rust Runtime     |
-          | Plan graphs, WASM  |
-          | Policy, Checkpoint |
-          +--------------------+
-                    |
-          +---------+---------+
-          | SQLite | PostgreSQL|
-          | (Solo) |  (Team)   |
-          +--------+-----------+
+                    +--------------------------+
+                    |    Experience Layer       |
+                    |  TypeScript/React + Tauri |
+                    +------------+-------------+
+                                 |
+              +------------------+------------------+
+              |          Go Control Plane            |
+    +---------+---------+---------+---------+---------+
+    | Gateway | Sched.  | Health  | Defense | Research|
+    | :8080   | :8081   | :8082   | :8083   | :8085   |
+    +---------+---------+---------+---------+---------+
+    | Optim.  | Fleet   | Tenancy |
+    | :8086   | :8087   | :8088   |
+    +---------+---------+---------+
+              |
+    +---------+----------+
+    |    Rust Runtime     |
+    | Plan graphs, WASM,  |
+    | Policy, Checkpoints |
+    +-----+---------+----+
+          |         |
+    +-----+--+ +----+------+
+    | SQLite | | PostgreSQL |
+    | (Solo) | |  (Team)    |
+    +--------+ +-----------+
 ```
 
 ## Quick Start
@@ -89,7 +90,7 @@ make build-go         # Go services
 make build-web        # Web frontend
 ```
 
-See the [Deployment Guide](docs/guides/deployment-guide.md) for full instructions.
+See the [Deployment Guide](docs/guides/deployment-guide.md) for Solo, Household, and Team mode instructions.
 
 ## Screenshots
 
