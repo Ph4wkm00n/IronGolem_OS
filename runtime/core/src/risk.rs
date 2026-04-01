@@ -4,10 +4,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Risk level classification for actions and events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
     /// No notable risk.
+    #[default]
     None,
     /// Low risk; can proceed automatically.
     Low,
@@ -17,12 +18,6 @@ pub enum RiskLevel {
     High,
     /// Critical risk; requires admin-level approval.
     Critical,
-}
-
-impl Default for RiskLevel {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// Risk metadata attached to events, plan nodes, and actions.
