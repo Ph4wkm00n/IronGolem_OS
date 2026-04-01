@@ -116,9 +116,15 @@ impl PlanNode {
 #[serde(tag = "type")]
 pub enum PlanNodeKind {
     /// Call an external tool.
-    ToolCall { tool_name: String, input: serde_json::Value },
+    ToolCall {
+        tool_name: String,
+        input: serde_json::Value,
+    },
     /// Make an LLM inference call.
-    LlmCall { prompt: String, model: Option<String> },
+    LlmCall {
+        prompt: String,
+        model: Option<String>,
+    },
     /// Wait for user approval before proceeding.
     ApprovalGate { description: String },
     /// Delegate to another agent.

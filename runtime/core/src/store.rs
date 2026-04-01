@@ -4,7 +4,7 @@
 //! provides the concrete SQLite-backed implementation for solo/household mode.
 
 use async_trait::async_trait;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 use uuid::Uuid;
 
@@ -66,7 +66,10 @@ impl SqliteEventStore {
 
     /// Create the events table and indexes if they do not exist.
     fn init_db(&self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS events (
                 id              TEXT PRIMARY KEY NOT NULL,
@@ -123,10 +126,7 @@ impl SqliteEventStore {
             })?;
         let workspace_id = WorkspaceId(parse_uuid(&ws_str)?);
         let user_id = user_str.map(|s| parse_uuid(&s)).transpose()?.map(UserId);
-        let agent_id = agent_str
-            .map(|s| parse_uuid(&s))
-            .transpose()?
-            .map(AgentId);
+        let agent_id = agent_str.map(|s| parse_uuid(&s)).transpose()?.map(AgentId);
         let session_id = session_str
             .map(|s| parse_uuid(&s))
             .transpose()?
@@ -137,11 +137,7 @@ impl SqliteEventStore {
             .map(ChannelId);
 
         let kind: EventKind = serde_json::from_str(&kind_json).map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                7,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
         })?;
 
         let risk: Option<RiskMetadata> = risk_json
@@ -176,13 +172,12 @@ impl SqliteEventStore {
 impl EventStore for SqliteEventStore {
     async fn append(&self, event: &Event) -> Result<()> {
         let kind_json = serde_json::to_string(&event.kind)?;
-        let risk_json = event
-            .risk
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?;
+        let risk_json = event.risk.as_ref().map(serde_json::to_string).transpose()?;
 
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO events (id, timestamp, workspace_id, user_id, agent_id, session_id, channel_id, kind, risk, parent_event_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -208,7 +203,10 @@ impl EventStore for SqliteEventStore {
         workspace_id: WorkspaceId,
         limit: usize,
     ) -> Result<Vec<Event>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, timestamp, workspace_id, user_id, agent_id, session_id, channel_id, kind, risk, parent_event_id
@@ -220,7 +218,10 @@ impl EventStore for SqliteEventStore {
             .map_err(|e| Error::Database(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![workspace_id.0.to_string(), limit as i64], Self::row_to_event)
+            .query_map(
+                params![workspace_id.0.to_string(), limit as i64],
+                Self::row_to_event,
+            )
             .map_err(|e| Error::Database(e.to_string()))?;
 
         let mut events = Vec::new();
@@ -231,7 +232,10 @@ impl EventStore for SqliteEventStore {
     }
 
     async fn get(&self, event_id: Uuid) -> Result<Option<Event>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, timestamp, workspace_id, user_id, agent_id, session_id, channel_id, kind, risk, parent_event_id
@@ -258,7 +262,10 @@ impl EventStore for SqliteEventStore {
     ) -> Result<Vec<Event>> {
         // We store the full JSON of the EventKind; the serde tag field is "type".
         // We use a JSON extract to match the discriminant.
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, timestamp, workspace_id, user_id, agent_id, session_id, channel_id, kind, risk, parent_event_id
@@ -352,10 +359,7 @@ mod tests {
             .await
             .unwrap();
 
-        let events = store
-            .list_by_kind(ws, "RecipeActivated", 10)
-            .await
-            .unwrap();
+        let events = store.list_by_kind(ws, "RecipeActivated", 10).await.unwrap();
         assert_eq!(events.len(), 1);
     }
 }

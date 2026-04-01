@@ -5,10 +5,10 @@
 
 pub mod error;
 pub mod event;
+pub mod pg_store;
 pub mod plan;
 pub mod policy;
 pub mod risk;
-pub mod pg_store;
 pub mod store;
 pub mod types;
 

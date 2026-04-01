@@ -32,7 +32,11 @@ async fn test_knowledge_graph_workflow() {
     store.upsert_node(&source).await.unwrap();
 
     // Verify nodes were stored
-    let loaded_alice = store.get_node(alice_id).await.unwrap().expect("alice should exist");
+    let loaded_alice = store
+        .get_node(alice_id)
+        .await
+        .unwrap()
+        .expect("alice should exist");
     assert_eq!(loaded_alice.name, "Alice");
     assert_eq!(loaded_alice.kind, NodeKind::Person);
 
@@ -70,7 +74,10 @@ async fn test_knowledge_graph_workflow() {
     assert_eq!(topic_edges.len(), 2);
 
     // Verify find by kind
-    let people = store.find_nodes_by_kind(ws, NodeKind::Person).await.unwrap();
+    let people = store
+        .find_nodes_by_kind(ws, NodeKind::Person)
+        .await
+        .unwrap();
     assert_eq!(people.len(), 1);
     assert_eq!(people[0].name, "Alice");
 
@@ -78,7 +85,10 @@ async fn test_knowledge_graph_workflow() {
     assert_eq!(topics.len(), 1);
     assert_eq!(topics[0].name, "Rust Programming");
 
-    let sources = store.find_nodes_by_kind(ws, NodeKind::Source).await.unwrap();
+    let sources = store
+        .find_nodes_by_kind(ws, NodeKind::Source)
+        .await
+        .unwrap();
     assert_eq!(sources.len(), 1);
     assert_eq!(sources[0].name, "The Rust Book");
 }
@@ -102,7 +112,11 @@ async fn test_preference_learning() {
     store.upsert_node(&pref).await.unwrap();
 
     // Verify initial state
-    let loaded = store.get_node(pref_id).await.unwrap().expect("preference should exist");
+    let loaded = store
+        .get_node(pref_id)
+        .await
+        .unwrap()
+        .expect("preference should exist");
     assert_eq!(loaded.confidence, 0.6);
     assert_eq!(loaded.evidence.len(), 1);
 
@@ -119,7 +133,11 @@ async fn test_preference_learning() {
     store.upsert_node(&pref).await.unwrap();
 
     // Verify updated state
-    let updated = store.get_node(pref_id).await.unwrap().expect("preference should exist");
+    let updated = store
+        .get_node(pref_id)
+        .await
+        .unwrap()
+        .expect("preference should exist");
     assert_eq!(updated.confidence, 0.85);
     assert_eq!(updated.evidence.len(), 2);
 
@@ -129,7 +147,10 @@ async fn test_preference_learning() {
     assert_eq!(updated.evidence[1].trust_score, 0.95);
 
     // Verify it shows up as a Preference kind
-    let prefs = store.find_nodes_by_kind(ws, NodeKind::Preference).await.unwrap();
+    let prefs = store
+        .find_nodes_by_kind(ws, NodeKind::Preference)
+        .await
+        .unwrap();
     assert_eq!(prefs.len(), 1);
     assert_eq!(prefs[0].name, "Prefers dark mode");
 }

@@ -2,7 +2,7 @@
 //! corresponding execution strategy.
 
 use async_trait::async_trait;
-use irongolem_core::{plan::Plan, Result};
+use irongolem_core::{Result, plan::Plan};
 use uuid::Uuid;
 
 /// Trait for executing individual plan steps.

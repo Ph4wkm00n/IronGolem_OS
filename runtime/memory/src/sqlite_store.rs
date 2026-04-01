@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use irongolem_core::types::WorkspaceId;
 use irongolem_core::{Error, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::sync::Mutex;
 use uuid::Uuid;
 
@@ -39,7 +39,10 @@ impl SqliteMemoryStore {
 
     /// Initialize database tables and indexes.
     fn init_db(&self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS nodes (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -120,18 +123,14 @@ impl SqliteMemoryStore {
         let updated_str: String = row.get(11)?;
 
         let map_err = |e: String| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::from(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::from(e))
         };
 
         let id = Uuid::parse_str(&id_str).map_err(|e| map_err(e.to_string()))?;
         let workspace_id =
             WorkspaceId(Uuid::parse_str(&workspace_str).map_err(|e| map_err(e.to_string()))?);
-        let kind: NodeKind =
-            serde_json::from_str(&format!("\"{}\"", kind_str)).map_err(|e| map_err(e.to_string()))?;
+        let kind: NodeKind = serde_json::from_str(&format!("\"{}\"", kind_str))
+            .map_err(|e| map_err(e.to_string()))?;
         let freshness = chrono::DateTime::parse_from_rfc3339(&freshness_str)
             .map_err(|e| map_err(e.to_string()))?
             .with_timezone(&Utc);
@@ -173,18 +172,14 @@ impl SqliteMemoryStore {
         let created_str: String = row.get(6)?;
 
         let map_err = |e: String| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::from(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::from(e))
         };
 
         let id = Uuid::parse_str(&id_str).map_err(|e| map_err(e.to_string()))?;
         let source_id = Uuid::parse_str(&source_str).map_err(|e| map_err(e.to_string()))?;
         let target_id = Uuid::parse_str(&target_str).map_err(|e| map_err(e.to_string()))?;
-        let kind: EdgeKind =
-            serde_json::from_str(&format!("\"{}\"", kind_str)).map_err(|e| map_err(e.to_string()))?;
+        let kind: EdgeKind = serde_json::from_str(&format!("\"{}\"", kind_str))
+            .map_err(|e| map_err(e.to_string()))?;
         let metadata: serde_json::Value =
             serde_json::from_str(&metadata_json).map_err(|e| map_err(e.to_string()))?;
         let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
@@ -223,7 +218,10 @@ impl MemoryStore for SqliteMemoryStore {
         let evidence_json = serde_json::to_string(&node.evidence)?;
         let metadata_json = serde_json::to_string(&node.metadata)?;
 
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO nodes (id, workspace_id, kind, name, description, confidence, freshness, has_contradiction, evidence, metadata, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -257,7 +255,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn get_node(&self, id: Uuid) -> Result<Option<GraphNode>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, workspace_id, kind, name, description, confidence, freshness, has_contradiction, evidence, metadata, created_at, updated_at
@@ -281,7 +282,10 @@ impl MemoryStore for SqliteMemoryStore {
         kind: NodeKind,
     ) -> Result<Vec<GraphNode>> {
         let kind_str = Self::kind_to_str(&kind)?;
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, workspace_id, kind, name, description, confidence, freshness, has_contradiction, evidence, metadata, created_at, updated_at
@@ -305,12 +309,11 @@ impl MemoryStore for SqliteMemoryStore {
         Ok(nodes)
     }
 
-    async fn search_nodes(
-        &self,
-        workspace_id: WorkspaceId,
-        query: &str,
-    ) -> Result<Vec<GraphNode>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+    async fn search_nodes(&self, workspace_id: WorkspaceId, query: &str) -> Result<Vec<GraphNode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
 
         // Use FTS5 for full-text search, then join back to nodes for filtering.
         let mut stmt = conn
@@ -345,7 +348,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn delete_node(&self, id: Uuid) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         // Delete edges first (in case foreign keys are not enforced), then node.
         conn.execute(
             "DELETE FROM edges WHERE source_id = ?1 OR target_id = ?1",
@@ -362,7 +368,10 @@ impl MemoryStore for SqliteMemoryStore {
         let kind_str = Self::edge_kind_to_str(&edge.kind)?;
         let metadata_json = serde_json::to_string(&edge.metadata)?;
 
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO edges (id, source_id, target_id, kind, weight, metadata, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -381,7 +390,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn get_edges_from(&self, node_id: Uuid) -> Result<Vec<Edge>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, source_id, target_id, kind, weight, metadata, created_at
@@ -401,7 +413,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn get_edges_to(&self, node_id: Uuid) -> Result<Vec<Edge>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, source_id, target_id, kind, weight, metadata, created_at
@@ -421,7 +436,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn delete_edge(&self, edge_id: Uuid) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         conn.execute(
             "DELETE FROM edges WHERE id = ?1",
             params![edge_id.to_string()],
@@ -431,7 +449,10 @@ impl MemoryStore for SqliteMemoryStore {
     }
 
     async fn find_contradictions(&self, workspace_id: WorkspaceId) -> Result<Vec<GraphNode>> {
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, workspace_id, kind, name, description, confidence, freshness, has_contradiction, evidence, metadata, created_at, updated_at
@@ -458,7 +479,10 @@ impl MemoryStore for SqliteMemoryStore {
         older_than_days: u32,
     ) -> Result<Vec<GraphNode>> {
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(older_than_days));
-        let conn = self.conn.lock().map_err(|e| Error::Database(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| Error::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, workspace_id, kind, name, description, confidence, freshness, has_contradiction, evidence, metadata, created_at, updated_at
@@ -486,7 +510,7 @@ impl MemoryStore for SqliteMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Edge, GraphNode, NodeKind, EdgeKind};
+    use crate::graph::{Edge, EdgeKind, GraphNode, NodeKind};
 
     #[tokio::test]
     async fn test_upsert_and_get_node() {
@@ -496,7 +520,11 @@ mod tests {
         let node_id = node.id;
 
         store.upsert_node(&node).await.expect("upsert");
-        let loaded = store.get_node(node_id).await.expect("get").expect("should exist");
+        let loaded = store
+            .get_node(node_id)
+            .await
+            .expect("get")
+            .expect("should exist");
         assert_eq!(loaded.name, "Alice");
     }
 
@@ -505,11 +533,23 @@ mod tests {
         let store = SqliteMemoryStore::in_memory().expect("open in-memory store");
         let ws = WorkspaceId::new();
 
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Person, "Alice")).await.expect("upsert");
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Rust")).await.expect("upsert");
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Person, "Bob")).await.expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Person, "Alice"))
+            .await
+            .expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Rust"))
+            .await
+            .expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Person, "Bob"))
+            .await
+            .expect("upsert");
 
-        let people = store.find_nodes_by_kind(ws, NodeKind::Person).await.expect("find");
+        let people = store
+            .find_nodes_by_kind(ws, NodeKind::Person)
+            .await
+            .expect("find");
         assert_eq!(people.len(), 2);
     }
 
@@ -518,8 +558,14 @@ mod tests {
         let store = SqliteMemoryStore::in_memory().expect("open in-memory store");
         let ws = WorkspaceId::new();
 
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Rust Programming")).await.expect("upsert");
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Go Language")).await.expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Rust Programming"))
+            .await
+            .expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Topic, "Go Language"))
+            .await
+            .expect("upsert");
 
         let results = store.search_nodes(ws, "Rust").await.expect("search");
         assert_eq!(results.len(), 1);
@@ -547,14 +593,20 @@ mod tests {
         };
         store.add_edge(&edge).await.expect("add_edge");
 
-        let from = store.get_edges_from(alice.id).await.expect("get_edges_from");
+        let from = store
+            .get_edges_from(alice.id)
+            .await
+            .expect("get_edges_from");
         assert_eq!(from.len(), 1);
 
         let to = store.get_edges_to(topic.id).await.expect("get_edges_to");
         assert_eq!(to.len(), 1);
 
         store.delete_edge(edge.id).await.expect("delete_edge");
-        let from_after = store.get_edges_from(alice.id).await.expect("get_edges_from");
+        let from_after = store
+            .get_edges_from(alice.id)
+            .await
+            .expect("get_edges_from");
         assert_eq!(from_after.len(), 0);
     }
 
@@ -593,9 +645,15 @@ mod tests {
         node.has_contradiction = true;
         store.upsert_node(&node).await.expect("upsert");
 
-        store.upsert_node(&GraphNode::new(ws, NodeKind::Claim, "Sky is blue")).await.expect("upsert");
+        store
+            .upsert_node(&GraphNode::new(ws, NodeKind::Claim, "Sky is blue"))
+            .await
+            .expect("upsert");
 
-        let contradictions = store.find_contradictions(ws).await.expect("find_contradictions");
+        let contradictions = store
+            .find_contradictions(ws)
+            .await
+            .expect("find_contradictions");
         assert_eq!(contradictions.len(), 1);
         assert_eq!(contradictions[0].name, "Earth is flat");
     }
