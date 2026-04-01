@@ -180,6 +180,14 @@ export default function App() {
             sidebarCollapsed ? "ml-16" : "ml-56"
           }`}
         >
+          {/* Top header */}
+          <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-neutral-200 bg-white/80 px-6 backdrop-blur">
+            <h1 className="text-lg font-bold tracking-tight text-neutral-900">
+              IronGolem OS
+            </h1>
+            <span className="text-xs text-neutral-400">Your autonomous assistant</span>
+          </header>
+
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/inbox" element={<Inbox />} />
