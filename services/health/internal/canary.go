@@ -1,6 +1,7 @@
-// Package internal implements connector canary checks for proactive health
-// monitoring. Canaries detect connector degradation (connectivity loss,
-// latency spikes, credential expiry, data corruption) before full failure.
+// Package internal implements connector canary checks for the IronGolem OS
+// Health service. Canaries detect connector degradation before full failure
+// by periodically verifying connectivity, latency, authentication, and data
+// integrity.
 package internal
 
 import (
@@ -18,122 +19,221 @@ import (
 type CanaryType string
 
 const (
-	CanaryConnectivity   CanaryType = "connectivity"
-	CanaryLatency        CanaryType = "latency"
-	CanaryAuth           CanaryType = "auth"
-	CanaryDataIntegrity  CanaryType = "data_integrity"
+	CanaryConnectivity  CanaryType = "connectivity"
+	CanaryLatency       CanaryType = "latency"
+	CanaryAuth          CanaryType = "auth"
+	CanaryDataIntegrity CanaryType = "data_integrity"
 )
 
-// CanaryCheck describes a scheduled canary probe for a connector.
+// CanaryCheck describes a scheduled canary check for a connector.
 type CanaryCheck struct {
-	ID                  string     `json:"id"`
-	ConnectorID         string     `json:"connector_id"`
-	Type                CanaryType `json:"type"`
-	Schedule            string     `json:"schedule"` // cron expression
-	LastRun             *time.Time `json:"last_run,omitempty"`
-	LastResult          *CanaryResult `json:"last_result,omitempty"`
-	ConsecutiveFailures int        `json:"consecutive_failures"`
+	// ID uniquely identifies this canary check.
+	ID string `json:"id"`
+
+	// ConnectorID is the connector being checked.
+	ConnectorID string `json:"connector_id"`
+
+	// Type is the kind of canary check.
+	Type CanaryType `json:"type"`
+
+	// Schedule is a cron-like interval string (e.g. "30s", "5m").
+	Schedule string `json:"schedule"`
+
+	// Interval is the parsed duration from Schedule.
+	Interval time.Duration `json:"-"`
+
+	// LastRun is the timestamp of the most recent execution.
+	LastRun *time.Time `json:"last_run,omitempty"`
+
+	// LastResult is the outcome of the most recent execution.
+	LastResult *CanaryResult `json:"last_result,omitempty"`
+
+	// ConsecutiveFailures is the number of failures in a row.
+	ConsecutiveFailures int `json:"consecutive_failures"`
+
+	// FailureThreshold is how many consecutive failures trigger an alert.
+	FailureThreshold int `json:"failure_threshold"`
 }
 
-// CanaryResult captures the outcome of a single canary probe.
+// CanaryResult captures the outcome of a single canary execution.
 type CanaryResult struct {
 	Passed    bool          `json:"passed"`
-	Duration  time.Duration `json:"duration"`
+	Duration  time.Duration `json:"duration_ns"`
 	Error     string        `json:"error,omitempty"`
 	Timestamp time.Time     `json:"timestamp"`
 }
 
-// CanaryProbe is a function that executes a canary check and returns the
-// result. Implementations vary by canary type.
-type CanaryProbe func(ctx context.Context, connectorID string) CanaryResult
-
-// CanaryAlertHandler is called when a canary fails N consecutive times.
-type CanaryAlertHandler func(ctx context.Context, check CanaryCheck)
-
-// CanaryManagerConfig holds tunable parameters for the canary manager.
-type CanaryManagerConfig struct {
-	// DefaultInterval is the check interval when no cron schedule is set.
-	DefaultInterval time.Duration
-
-	// FailureThreshold is the number of consecutive failures before an
-	// alert is emitted. Default: 3.
-	FailureThreshold int
-
-	// LatencySLA is the maximum acceptable response time for latency
-	// canaries. Default: 2s.
-	LatencySLA time.Duration
+// CanaryProbe is the interface that individual canary types implement.
+type CanaryProbe interface {
+	// Probe executes the canary check and returns the result.
+	Probe(ctx context.Context, connectorID string) CanaryResult
 }
 
-func (c *CanaryManagerConfig) applyDefaults() {
-	if c.DefaultInterval <= 0 {
-		c.DefaultInterval = 60 * time.Second
-	}
-	if c.FailureThreshold <= 0 {
-		c.FailureThreshold = 3
-	}
-	if c.LatencySLA <= 0 {
-		c.LatencySLA = 2 * time.Second
-	}
+// ConnectivityCanary verifies that a connection to the connector is alive.
+type ConnectivityCanary struct {
+	// Checker is called with the connector ID and returns nil if alive.
+	Checker func(ctx context.Context, connectorID string) error
 }
 
-// CanaryManager registers and runs canary checks for connectors. It detects
-// degradation early and emits events when failures exceed the threshold.
+// Probe checks connectivity to the connector.
+func (c *ConnectivityCanary) Probe(ctx context.Context, connectorID string) CanaryResult {
+	start := time.Now()
+	err := c.Checker(ctx, connectorID)
+	dur := time.Since(start)
+
+	result := CanaryResult{
+		Passed:    err == nil,
+		Duration:  dur,
+		Timestamp: time.Now().UTC(),
+	}
+	if err != nil {
+		result.Error = err.Error()
+	}
+	return result
+}
+
+// LatencyCanary checks that response time is within an SLA threshold.
+type LatencyCanary struct {
+	// MaxLatency is the maximum acceptable response time.
+	MaxLatency time.Duration
+
+	// Pinger is called to measure round-trip time to the connector.
+	Pinger func(ctx context.Context, connectorID string) (time.Duration, error)
+}
+
+// Probe measures latency and fails if it exceeds the threshold.
+func (c *LatencyCanary) Probe(ctx context.Context, connectorID string) CanaryResult {
+	start := time.Now()
+	latency, err := c.Pinger(ctx, connectorID)
+	dur := time.Since(start)
+
+	result := CanaryResult{
+		Duration:  dur,
+		Timestamp: time.Now().UTC(),
+	}
+
+	if err != nil {
+		result.Passed = false
+		result.Error = fmt.Sprintf("ping failed: %v", err)
+		return result
+	}
+
+	if latency > c.MaxLatency {
+		result.Passed = false
+		result.Error = fmt.Sprintf("latency %v exceeds SLA threshold %v", latency, c.MaxLatency)
+		return result
+	}
+
+	result.Passed = true
+	return result
+}
+
+// AuthCanary verifies that credentials for a connector have not expired.
+type AuthCanary struct {
+	// Verifier checks whether the connector's credentials are still valid.
+	Verifier func(ctx context.Context, connectorID string) error
+}
+
+// Probe checks authentication validity.
+func (c *AuthCanary) Probe(ctx context.Context, connectorID string) CanaryResult {
+	start := time.Now()
+	err := c.Verifier(ctx, connectorID)
+	dur := time.Since(start)
+
+	result := CanaryResult{
+		Passed:    err == nil,
+		Duration:  dur,
+		Timestamp: time.Now().UTC(),
+	}
+	if err != nil {
+		result.Error = fmt.Sprintf("auth verification failed: %v", err)
+	}
+	return result
+}
+
+// DataIntegrityCanary sends test data through a connector and verifies the
+// round-trip to detect silent data corruption.
+type DataIntegrityCanary struct {
+	// RoundTripper sends a test payload and returns nil if the response matches.
+	RoundTripper func(ctx context.Context, connectorID string, testPayload string) error
+}
+
+// Probe sends test data and verifies round-trip integrity.
+func (c *DataIntegrityCanary) Probe(ctx context.Context, connectorID string) CanaryResult {
+	start := time.Now()
+	testPayload := fmt.Sprintf("canary-integrity-check-%d", time.Now().UnixNano())
+	err := c.RoundTripper(ctx, connectorID, testPayload)
+	dur := time.Since(start)
+
+	result := CanaryResult{
+		Passed:    err == nil,
+		Duration:  dur,
+		Timestamp: time.Now().UTC(),
+	}
+	if err != nil {
+		result.Error = fmt.Sprintf("data integrity check failed: %v", err)
+	}
+	return result
+}
+
+// CanaryManager manages registration and execution of canary checks.
 type CanaryManager struct {
-	mu      sync.RWMutex
-	checks  map[string]*CanaryCheck
-	probes  map[CanaryType]CanaryProbe
-	config  CanaryManagerConfig
-	logger  *slog.Logger
-	alertFn CanaryAlertHandler
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	mu     sync.RWMutex
+	checks map[string]*CanaryCheck
+	probes map[string]CanaryProbe
+	logger *slog.Logger
+	stopCh chan struct{}
+	wg     sync.WaitGroup
+
+	// AlertCallback is called when a canary fails N consecutive times.
+	AlertCallback func(check CanaryCheck)
 }
 
-// NewCanaryManager creates a CanaryManager with the given configuration.
-func NewCanaryManager(logger *slog.Logger, config CanaryManagerConfig) *CanaryManager {
-	config.applyDefaults()
-	cm := &CanaryManager{
+// NewCanaryManager creates a CanaryManager with the given logger.
+func NewCanaryManager(logger *slog.Logger) *CanaryManager {
+	return &CanaryManager{
 		checks: make(map[string]*CanaryCheck),
-		probes: make(map[CanaryType]CanaryProbe),
-		config: config,
+		probes: make(map[string]CanaryProbe),
 		logger: logger,
 		stopCh: make(chan struct{}),
 	}
-
-	// Register built-in canary probes.
-	cm.probes[CanaryConnectivity] = cm.connectivityProbe
-	cm.probes[CanaryLatency] = cm.latencyProbe
-	cm.probes[CanaryAuth] = cm.authProbe
-	cm.probes[CanaryDataIntegrity] = cm.dataIntegrityProbe
-
-	return cm
 }
 
-// SetAlertHandler sets the callback invoked when a canary exceeds the
-// failure threshold.
-func (m *CanaryManager) SetAlertHandler(fn CanaryAlertHandler) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.alertFn = fn
-}
+// Register adds a canary check with its associated probe.
+func (m *CanaryManager) Register(check CanaryCheck, probe CanaryProbe) error {
+	if check.ID == "" {
+		return fmt.Errorf("canary check ID is required")
+	}
+	if check.ConnectorID == "" {
+		return fmt.Errorf("canary check connector_id is required")
+	}
+	if check.FailureThreshold <= 0 {
+		check.FailureThreshold = 3
+	}
+	if check.Interval <= 0 {
+		check.Interval = 60 * time.Second
+	}
 
-// Register adds a canary check. If a check with the same ID already exists
-// it is replaced.
-func (m *CanaryManager) Register(check CanaryCheck) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.checks[check.ID] = &check
-	m.logger.Info("canary registered",
+	m.probes[check.ID] = probe
+
+	m.logger.Info("canary check registered",
 		slog.String("id", check.ID),
-		slog.String("connector", check.ConnectorID),
+		slog.String("connector_id", check.ConnectorID),
 		slog.String("type", string(check.Type)),
 	)
+
+	return nil
 }
 
-// ListChecks returns a snapshot of all registered canary checks.
-func (m *CanaryManager) ListChecks() []CanaryCheck {
+// List returns a snapshot of all registered canary checks.
+func (m *CanaryManager) List() []CanaryCheck {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	result := make([]CanaryCheck, 0, len(m.checks))
 	for _, c := range m.checks {
 		result = append(result, *c)
@@ -141,7 +241,7 @@ func (m *CanaryManager) ListChecks() []CanaryCheck {
 	return result
 }
 
-// RunCheck forces a single canary check to execute immediately.
+// RunCheck forces execution of a single canary check by ID.
 func (m *CanaryManager) RunCheck(ctx context.Context, checkID string) (*CanaryResult, error) {
 	m.mu.Lock()
 	check, ok := m.checks[checkID]
@@ -149,32 +249,76 @@ func (m *CanaryManager) RunCheck(ctx context.Context, checkID string) (*CanaryRe
 		m.mu.Unlock()
 		return nil, fmt.Errorf("canary check not found: %s", checkID)
 	}
-	// Copy probe reference while holding the lock.
-	probe, hasProbe := m.probes[check.Type]
+	probe, ok := m.probes[checkID]
+	if !ok {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("canary probe not found: %s", checkID)
+	}
 	m.mu.Unlock()
 
-	if !hasProbe {
-		return nil, fmt.Errorf("no probe registered for canary type: %s", check.Type)
-	}
+	result := probe.Probe(ctx, check.ConnectorID)
 
-	result := probe(ctx, check.ConnectorID)
-	m.recordResult(ctx, checkID, result)
+	m.mu.Lock()
+	now := time.Now().UTC()
+	check.LastRun = &now
+	check.LastResult = &result
+
+	if result.Passed {
+		check.ConsecutiveFailures = 0
+	} else {
+		check.ConsecutiveFailures++
+		m.logger.Warn("canary check failed",
+			slog.String("id", check.ID),
+			slog.String("connector_id", check.ConnectorID),
+			slog.String("type", string(check.Type)),
+			slog.Int("consecutive_failures", check.ConsecutiveFailures),
+			slog.String("error", result.Error),
+		)
+
+		if check.ConsecutiveFailures >= check.FailureThreshold {
+			m.emitAlert(*check)
+		}
+	}
+	m.mu.Unlock()
+
 	return &result, nil
 }
 
-// Run starts the background canary loop. It blocks until Stop or context
-// cancellation.
+// emitAlert fires an event and calls the alert callback when a canary
+// exceeds the failure threshold. Caller must hold the lock.
+func (m *CanaryManager) emitAlert(check CanaryCheck) {
+	payload, _ := json.Marshal(map[string]any{
+		"canary_id":            check.ID,
+		"connector_id":         check.ConnectorID,
+		"type":                 check.Type,
+		"consecutive_failures": check.ConsecutiveFailures,
+		"last_error":           check.LastResult.Error,
+	})
+	evt := events.NewEvent(events.EventKindConnectorDown, "", "health", payload)
+
+	m.logger.Error("canary alert: connector degradation detected",
+		slog.String("event_id", evt.ID),
+		slog.String("canary_id", check.ID),
+		slog.String("connector_id", check.ConnectorID),
+		slog.Int("consecutive_failures", check.ConsecutiveFailures),
+	)
+
+	if m.AlertCallback != nil {
+		go m.AlertCallback(check)
+	}
+}
+
+// Run starts the background canary execution loop. It checks each canary
+// at its configured interval.
 func (m *CanaryManager) Run(ctx context.Context) {
 	m.wg.Add(1)
 	defer m.wg.Done()
 
-	ticker := time.NewTicker(m.config.DefaultInterval)
+	// Use a base tick of 5 seconds and check which canaries are due.
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	m.logger.Info("canary manager started",
-		slog.Duration("interval", m.config.DefaultInterval),
-		slog.Int("failure_threshold", m.config.FailureThreshold),
-	)
+	m.logger.Info("canary manager started")
 
 	for {
 		select {
@@ -183,12 +327,34 @@ func (m *CanaryManager) Run(ctx context.Context) {
 		case <-m.stopCh:
 			return
 		case <-ticker.C:
-			m.runAll(ctx)
+			m.evaluateDue(ctx)
 		}
 	}
 }
 
-// Stop signals the canary loop to exit and waits for it to finish.
+// evaluateDue runs any canary checks that are past their scheduled interval.
+func (m *CanaryManager) evaluateDue(ctx context.Context) {
+	m.mu.RLock()
+	var due []string
+	now := time.Now().UTC()
+	for id, check := range m.checks {
+		if check.LastRun == nil || now.Sub(*check.LastRun) >= check.Interval {
+			due = append(due, id)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, id := range due {
+		if _, err := m.RunCheck(ctx, id); err != nil {
+			m.logger.Warn("failed to run canary check",
+				slog.String("id", id),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+}
+
+// Stop signals the canary manager to exit and waits for completion.
 func (m *CanaryManager) Stop() {
 	select {
 	case <-m.stopCh:
@@ -196,149 +362,4 @@ func (m *CanaryManager) Stop() {
 		close(m.stopCh)
 	}
 	m.wg.Wait()
-}
-
-// runAll executes all registered canary checks.
-func (m *CanaryManager) runAll(ctx context.Context) {
-	m.mu.RLock()
-	ids := make([]string, 0, len(m.checks))
-	for id := range m.checks {
-		ids = append(ids, id)
-	}
-	m.mu.RUnlock()
-
-	for _, id := range ids {
-		if _, err := m.RunCheck(ctx, id); err != nil {
-			m.logger.Warn("canary check failed to run",
-				slog.String("check_id", id),
-				slog.String("error", err.Error()),
-			)
-		}
-	}
-}
-
-// recordResult updates the check state and triggers alerts when appropriate.
-func (m *CanaryManager) recordResult(ctx context.Context, checkID string, result CanaryResult) {
-	m.mu.Lock()
-	check, ok := m.checks[checkID]
-	if !ok {
-		m.mu.Unlock()
-		return
-	}
-
-	now := result.Timestamp
-	check.LastRun = &now
-	check.LastResult = &result
-
-	if result.Passed {
-		check.ConsecutiveFailures = 0
-		m.mu.Unlock()
-		m.logger.Debug("canary passed",
-			slog.String("check_id", checkID),
-			slog.String("connector", check.ConnectorID),
-			slog.Duration("duration", result.Duration),
-		)
-		return
-	}
-
-	check.ConsecutiveFailures++
-	failures := check.ConsecutiveFailures
-	threshold := m.config.FailureThreshold
-	snapshot := *check
-	alertFn := m.alertFn
-	m.mu.Unlock()
-
-	m.logger.Warn("canary failed",
-		slog.String("check_id", checkID),
-		slog.String("connector", snapshot.ConnectorID),
-		slog.Int("consecutive_failures", failures),
-		slog.String("error", result.Error),
-	)
-
-	if failures >= threshold {
-		m.emitCanaryAlert(ctx, snapshot)
-		if alertFn != nil {
-			alertFn(ctx, snapshot)
-		}
-	}
-}
-
-// emitCanaryAlert emits an event when a canary exceeds the failure threshold.
-func (m *CanaryManager) emitCanaryAlert(ctx context.Context, check CanaryCheck) {
-	payload, _ := json.Marshal(map[string]any{
-		"check_id":             check.ID,
-		"connector_id":        check.ConnectorID,
-		"type":                check.Type,
-		"consecutive_failures": check.ConsecutiveFailures,
-		"last_error":          check.LastResult.Error,
-	})
-	evt := events.NewEvent(events.EventKindConnectorError, "", "health", payload)
-	m.logger.Error("canary alert: connector degradation detected",
-		slog.String("event_id", evt.ID),
-		slog.String("check_id", check.ID),
-		slog.String("connector", check.ConnectorID),
-		slog.String("type", string(check.Type)),
-		slog.Int("consecutive_failures", check.ConsecutiveFailures),
-	)
-	_ = ctx // context carried for future async event publishing
-}
-
-// --- Built-in canary probes ---
-
-// connectivityProbe verifies the connector is reachable and alive.
-func (m *CanaryManager) connectivityProbe(_ context.Context, connectorID string) CanaryResult {
-	start := time.Now()
-	// In production this would call the connector's Health endpoint.
-	// For now, we simulate a successful connectivity check.
-	return CanaryResult{
-		Passed:    true,
-		Duration:  time.Since(start),
-		Timestamp: time.Now().UTC(),
-	}
-}
-
-// latencyProbe checks that the connector responds within the SLA.
-func (m *CanaryManager) latencyProbe(_ context.Context, connectorID string) CanaryResult {
-	start := time.Now()
-	// In production this would perform a round-trip request to the connector
-	// and measure the response time.
-	elapsed := time.Since(start)
-
-	if elapsed > m.config.LatencySLA {
-		return CanaryResult{
-			Passed:    false,
-			Duration:  elapsed,
-			Error:     fmt.Sprintf("latency %s exceeds SLA %s", elapsed, m.config.LatencySLA),
-			Timestamp: time.Now().UTC(),
-		}
-	}
-
-	return CanaryResult{
-		Passed:    true,
-		Duration:  elapsed,
-		Timestamp: time.Now().UTC(),
-	}
-}
-
-// authProbe verifies the connector credentials have not expired.
-func (m *CanaryManager) authProbe(_ context.Context, connectorID string) CanaryResult {
-	start := time.Now()
-	// In production this would validate OAuth tokens, API keys, etc.
-	return CanaryResult{
-		Passed:    true,
-		Duration:  time.Since(start),
-		Timestamp: time.Now().UTC(),
-	}
-}
-
-// dataIntegrityProbe sends a test payload and verifies round-trip integrity.
-func (m *CanaryManager) dataIntegrityProbe(_ context.Context, connectorID string) CanaryResult {
-	start := time.Now()
-	// In production this would send a known payload through the connector
-	// pipeline and verify the data arrives intact.
-	return CanaryResult{
-		Passed:    true,
-		Duration:  time.Since(start),
-		Timestamp: time.Now().UTC(),
-	}
 }

@@ -42,6 +42,12 @@ const (
 	// Security events
 	EventKindThreatDetected  EventKind = "security.threat_detected"
 	EventKindPolicyDenied    EventKind = "security.policy_denied"
+	EventKindQuarantined     EventKind = "security.quarantined"
+	EventKindQuarantineReleased EventKind = "security.quarantine_released"
+	EventKindIncidentCreated EventKind = "security.incident_created"
+	EventKindIncidentResolved EventKind = "security.incident_resolved"
+	EventKindConfigRollback  EventKind = "security.config_rollback"
+	EventKindCommandBlocked  EventKind = "security.command_blocked"
 
 	// Tenancy events
 	EventKindTenantCreated   EventKind = "tenancy.tenant_created"
