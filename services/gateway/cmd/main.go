@@ -18,6 +18,8 @@ import (
 
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/connector"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/handler"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/middleware"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/policy"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 )
 
@@ -30,14 +32,16 @@ func main() {
 	connMgr := connector.NewManager(logger)
 	h := handler.New(logger, connMgr)
 
-	// Shared stores for the recipe, approval, and timeline subsystems.
+	// Shared stores for the recipe, approval, timeline, and squad subsystems.
 	eventStore := handler.NewInMemoryEventStore()
 	recipeStore := handler.NewInMemoryRecipeStore()
 	approvalStore := handler.NewInMemoryApprovalStore()
+	squadStore := handler.NewInMemorySquadStore()
 
 	recipeHandler := handler.NewRecipeHandler(logger, recipeStore, eventStore)
 	approvalHandler := handler.NewApprovalHandler(logger, approvalStore, eventStore)
 	timelineHandler := handler.NewTimelineHandler(logger, eventStore)
+	squadHandler := handler.NewSquadHandler(logger, squadStore, eventStore)
 
 	mux := http.NewServeMux()
 
@@ -66,14 +70,31 @@ func main() {
 	mux.HandleFunc("POST /api/v1/approvals/{id}/approve", approvalHandler.ApproveAction)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/deny", approvalHandler.DenyAction)
 
+	// Squad routes.
+	mux.HandleFunc("GET /api/v1/squads", squadHandler.ListSquads)
+	mux.HandleFunc("GET /api/v1/squads/{id}", squadHandler.GetSquad)
+	mux.HandleFunc("POST /api/v1/squads", squadHandler.CreateSquad)
+	mux.HandleFunc("POST /api/v1/squads/{id}/activate", squadHandler.ActivateSquad)
+	mux.HandleFunc("POST /api/v1/squads/{id}/pause", squadHandler.PauseSquad)
+	mux.HandleFunc("POST /api/v1/squads/{id}/run", squadHandler.RunSquad)
+
 	// Timeline / event routes.
 	mux.HandleFunc("GET /api/v1/events", timelineHandler.ListEvents)
 	mux.HandleFunc("GET /api/v1/events/{id}", timelineHandler.GetEvent)
 
+	// Build middleware chain: logging -> tenant -> policy -> handler.
+	deployMode := middleware.DeploymentMode(envOrDefault("DEPLOYMENT_MODE", "solo"))
+	policyEngine := policy.NewDefaultPolicyEngine(logger)
+
+	var finalHandler http.Handler = mux
+	finalHandler = middleware.PolicyMiddleware(policyEngine, logger, eventStore)(finalHandler)
+	finalHandler = middleware.TenantMiddleware(logger, deployMode)(finalHandler)
+	finalHandler = middleware.LoggingMiddleware(logger)(finalHandler)
+
 	addr := envOrDefault("GATEWAY_ADDR", ":8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           finalHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
