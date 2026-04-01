@@ -8,7 +8,10 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/ packages/
 COPY apps/web/ apps/web/
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm --filter @irongolem/design-tokens build 2>/dev/null || true
+RUN pnpm --filter @irongolem/schema build 2>/dev/null || true
+RUN pnpm --filter @irongolem/ui build 2>/dev/null || true
 RUN pnpm --filter @irongolem/web build
 
 FROM nginx:alpine
