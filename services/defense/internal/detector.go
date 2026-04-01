@@ -1,593 +1,547 @@
-// Package internal implements threat detection for the IronGolem OS
-// Defense service.
+// Package internal implements threat detection for the IronGolem OS Defense
+// service. It provides three detection mechanisms:
 //
-// It provides three detection capabilities:
-//   - Prompt injection detection via pattern matching and heuristics
-//   - SSRF checking via destination allowlist validation
-//   - Anomaly scoring for unusual request patterns
+//   - PromptInjectionDetector: pattern-based detection of prompt injection attacks
+//   - SSRFChecker: destination allowlist enforcement to prevent SSRF
+//   - AnomalyScorer: volume-based anomaly detection for burst/abuse patterns
 //
-// All detectors implement the ThreatDetector interface and are composed
-// into a CompositeThreatDetector that runs all checks.
+// Each detector produces a score and findings that are aggregated into a
+// ThreatAssessment.
 package internal
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net"
-	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
-// ThreatLevel indicates the severity of a detected threat.
-type ThreatLevel string
+// DetectorConfig holds tunable parameters for the threat detection engine.
+type DetectorConfig struct {
+	// InjectionThreshold is the minimum score (0-1) to flag an injection.
+	InjectionThreshold float64
 
-const (
-	ThreatLevelNone     ThreatLevel = "none"
-	ThreatLevelLow      ThreatLevel = "low"
-	ThreatLevelMedium   ThreatLevel = "medium"
-	ThreatLevelHigh     ThreatLevel = "high"
-	ThreatLevelCritical ThreatLevel = "critical"
-)
+	// AnomalyWindow is the time window for volume-based anomaly detection.
+	AnomalyWindow time.Duration
 
-// ThreatKind categorizes the type of threat detected.
-type ThreatKind string
-
-const (
-	ThreatKindPromptInjection ThreatKind = "prompt_injection"
-	ThreatKindSSRF            ThreatKind = "ssrf"
-	ThreatKindAnomaly         ThreatKind = "anomaly"
-)
-
-// ThreatResult is the outcome of a threat scan.
-type ThreatResult struct {
-	Detected    bool        `json:"detected"`
-	Kind        ThreatKind  `json:"kind"`
-	Level       ThreatLevel `json:"level"`
-	Score       float64     `json:"score"`
-	Description string      `json:"description"`
-	Blocked     bool        `json:"blocked"`
-	Patterns    []string    `json:"patterns,omitempty"`
+	// AnomalyMaxVolume is the maximum number of requests within the window
+	// before an anomaly is flagged.
+	AnomalyMaxVolume int
 }
 
-// ScanInput is the input to a threat detector.
-type ScanInput struct {
-	Content   string            `json:"content"`
-	URL       string            `json:"url,omitempty"`
-	Source    string            `json:"source,omitempty"`
-	TenantID  string            `json:"tenant_id,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+// CheckRequest is the input to the threat assessment endpoint.
+type CheckRequest struct {
+	Input       string `json:"input"`
+	TenantID    string `json:"tenant_id"`
+	UserID      string `json:"user_id,omitempty"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	Destination string `json:"destination,omitempty"` // URL for SSRF checks
 }
 
-// ThreatDetector is the interface for all threat detection components.
-type ThreatDetector interface {
-	// Detect analyzes the input and returns a threat result.
-	Detect(ctx context.Context, input ScanInput) ThreatResult
+// ThreatFinding describes a single threat signal detected in the input.
+type ThreatFinding struct {
+	Detector    string  `json:"detector"`
+	ThreatType  string  `json:"threat_type"`
+	Pattern     string  `json:"pattern,omitempty"`
+	Score       float64 `json:"score"`
+	Description string  `json:"description"`
+}
+
+// ThreatAssessment is the aggregated result of all detectors.
+type ThreatAssessment struct {
+	Safe          bool            `json:"safe"`
+	Blocked       bool            `json:"blocked"`
+	Score         float64         `json:"score"`
+	Severity      string          `json:"severity"` // "none", "low", "medium", "high", "critical"
+	PrimaryThreat string          `json:"primary_threat,omitempty"`
+	Summary       string          `json:"summary"`
+	Findings      []ThreatFinding `json:"findings"`
+	CheckedAt     time.Time       `json:"checked_at"`
+}
+
+// BlockedAction records a request that was blocked by the defense service.
+type BlockedAction struct {
+	ID         string           `json:"id"`
+	TenantID   string           `json:"tenant_id"`
+	UserID     string           `json:"user_id,omitempty"`
+	Assessment ThreatAssessment `json:"assessment"`
+	Input      string           `json:"input_preview"` // truncated for safety
+	BlockedAt  time.Time        `json:"blocked_at"`
+}
+
+// QuarantinedItem represents an input or entity placed in quarantine for
+// review by a human administrator.
+type QuarantinedItem struct {
+	ID            string    `json:"id"`
+	TenantID      string    `json:"tenant_id"`
+	Reason        string    `json:"reason"`
+	SourceType    string    `json:"source_type"` // "user", "agent", "connector"
+	SourceID      string    `json:"source_id"`
+	QuarantinedAt time.Time `json:"quarantined_at"`
+}
+
+// ThreatDetector orchestrates all detection mechanisms and maintains
+// blocked/quarantine lists.
+type ThreatDetector struct {
+	logger    *slog.Logger
+	config    DetectorConfig
+	injection *PromptInjectionDetector
+	ssrf      *SSRFChecker
+	anomaly   *AnomalyScorer
+
+	mu          sync.RWMutex
+	blocked     []BlockedAction
+	quarantined []QuarantinedItem
+}
+
+// NewThreatDetector creates a fully initialized ThreatDetector.
+func NewThreatDetector(logger *slog.Logger, config DetectorConfig) *ThreatDetector {
+	if config.InjectionThreshold <= 0 {
+		config.InjectionThreshold = 0.7
+	}
+	if config.AnomalyWindow <= 0 {
+		config.AnomalyWindow = 5 * time.Minute
+	}
+	if config.AnomalyMaxVolume <= 0 {
+		config.AnomalyMaxVolume = 100
+	}
+
+	return &ThreatDetector{
+		logger:      logger,
+		config:      config,
+		injection:   NewPromptInjectionDetector(config.InjectionThreshold),
+		ssrf:        NewSSRFChecker(),
+		anomaly:     NewAnomalyScorer(config.AnomalyWindow, config.AnomalyMaxVolume),
+		blocked:     make([]BlockedAction, 0),
+		quarantined: make([]QuarantinedItem, 0),
+	}
+}
+
+// Assess runs all detectors against the input and returns an aggregated result.
+func (d *ThreatDetector) Assess(ctx context.Context, req CheckRequest) ThreatAssessment {
+	var findings []ThreatFinding
+	var maxScore float64
+
+	// 1. Prompt injection detection.
+	injFindings := d.injection.Detect(req.Input)
+	for _, f := range injFindings {
+		findings = append(findings, f)
+		if f.Score > maxScore {
+			maxScore = f.Score
+		}
+	}
+
+	// 2. SSRF check (if a destination URL is provided).
+	if req.Destination != "" {
+		ssrfFindings := d.ssrf.Check(req.Destination)
+		for _, f := range ssrfFindings {
+			findings = append(findings, f)
+			if f.Score > maxScore {
+				maxScore = f.Score
+			}
+		}
+	}
+
+	// 3. Anomaly scoring (rate-based).
+	key := req.TenantID
+	if req.UserID != "" {
+		key = req.TenantID + ":" + req.UserID
+	}
+	anomalyFindings := d.anomaly.Score(key)
+	for _, f := range anomalyFindings {
+		findings = append(findings, f)
+		if f.Score > maxScore {
+			maxScore = f.Score
+		}
+	}
+
+	assessment := ThreatAssessment{
+		Safe:      len(findings) == 0,
+		Score:     maxScore,
+		Severity:  scoreSeverity(maxScore),
+		Findings:  findings,
+		CheckedAt: time.Now().UTC(),
+	}
+
+	if len(findings) == 0 {
+		assessment.Summary = "no threats detected"
+	} else {
+		// Find the highest-scoring finding as the primary.
+		best := findings[0]
+		for _, f := range findings[1:] {
+			if f.Score > best.Score {
+				best = f
+			}
+		}
+		assessment.PrimaryThreat = best.ThreatType
+		assessment.Summary = best.Description
+	}
+
+	// Block if score exceeds threshold.
+	if maxScore >= d.config.InjectionThreshold {
+		assessment.Blocked = true
+		assessment.Safe = false
+
+		d.mu.Lock()
+		d.blocked = append(d.blocked, BlockedAction{
+			ID:         generateID(),
+			TenantID:   req.TenantID,
+			UserID:     req.UserID,
+			Assessment: assessment,
+			Input:      truncate(req.Input, 200),
+			BlockedAt:  time.Now().UTC(),
+		})
+
+		// Quarantine the source if score is critical.
+		if maxScore >= 0.9 && req.UserID != "" {
+			d.quarantined = append(d.quarantined, QuarantinedItem{
+				ID:            generateID(),
+				TenantID:      req.TenantID,
+				Reason:        "critical threat score: " + assessment.PrimaryThreat,
+				SourceType:    "user",
+				SourceID:      req.UserID,
+				QuarantinedAt: time.Now().UTC(),
+			})
+			d.logger.WarnContext(ctx, "source quarantined",
+				slog.String("user_id", req.UserID),
+				slog.String("threat", assessment.PrimaryThreat),
+			)
+		}
+		d.mu.Unlock()
+	}
+
+	return assessment
+}
+
+// ListBlocked returns all blocked actions.
+func (d *ThreatDetector) ListBlocked() []BlockedAction {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	result := make([]BlockedAction, len(d.blocked))
+	copy(result, d.blocked)
+	return result
+}
+
+// ListQuarantined returns all quarantined items.
+func (d *ThreatDetector) ListQuarantined() []QuarantinedItem {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	result := make([]QuarantinedItem, len(d.quarantined))
+	copy(result, d.quarantined)
+	return result
 }
 
 // --- Prompt Injection Detector ---
 
-// PromptInjectionDetector checks for common prompt injection patterns
-// in user-provided content.
-type PromptInjectionDetector struct {
-	logger   *slog.Logger
-	patterns []injectionPattern
-}
-
+// injectionPattern pairs a regex with a threat description and weight.
 type injectionPattern struct {
-	name    string
-	markers []string
-	weight  float64
+	regex       *regexp.Regexp
+	description string
+	weight      float64
 }
 
-// NewPromptInjectionDetector creates a detector with the standard set of
-// injection patterns.
-func NewPromptInjectionDetector(logger *slog.Logger) *PromptInjectionDetector {
+// PromptInjectionDetector scans text for known prompt injection patterns.
+type PromptInjectionDetector struct {
+	patterns  []injectionPattern
+	threshold float64
+}
+
+// NewPromptInjectionDetector creates a detector with the built-in pattern set.
+func NewPromptInjectionDetector(threshold float64) *PromptInjectionDetector {
 	return &PromptInjectionDetector{
-		logger: logger,
+		threshold: threshold,
 		patterns: []injectionPattern{
 			{
-				name:    "role_override",
-				markers: []string{"ignore previous instructions", "ignore all previous", "disregard above", "forget your instructions", "you are now"},
-				weight:  0.9,
+				regex:       regexp.MustCompile(`(?i)ignore\s+(all\s+)?previous\s+instructions`),
+				description: "attempt to override system prompt",
+				weight:      0.95,
 			},
 			{
-				name:    "system_prompt_leak",
-				markers: []string{"reveal your system prompt", "show me your instructions", "what are your rules", "print your prompt", "output your system"},
-				weight:  0.8,
+				regex:       regexp.MustCompile(`(?i)you\s+are\s+now\s+(a|an)\s+`),
+				description: "role reassignment attack",
+				weight:      0.85,
 			},
 			{
-				name:    "delimiter_escape",
-				markers: []string{"```system", "###instruction", "[SYSTEM]", "<<SYS>>", "</s>"},
-				weight:  0.7,
+				regex:       regexp.MustCompile(`(?i)disregard\s+(all\s+)?(your\s+)?(rules|instructions|guidelines)`),
+				description: "instruction override attempt",
+				weight:      0.9,
 			},
 			{
-				name:    "encoding_evasion",
-				markers: []string{"base64 decode", "rot13", "hex decode", "url encode the following"},
-				weight:  0.5,
+				regex:       regexp.MustCompile(`(?i)system\s*:\s*`),
+				description: "system prompt injection via role prefix",
+				weight:      0.8,
 			},
 			{
-				name:    "instruction_injection",
-				markers: []string{"do not follow", "override safety", "bypass filter", "act as if you have no restrictions", "jailbreak"},
-				weight:  0.85,
+				regex:       regexp.MustCompile(`(?i)\]\]\s*>\s*`),
+				description: "XML/template escape attempt",
+				weight:      0.75,
+			},
+			{
+				regex:       regexp.MustCompile(`(?i)forget\s+(everything|all|what)`),
+				description: "memory wipe attempt",
+				weight:      0.85,
+			},
+			{
+				regex:       regexp.MustCompile(`(?i)do\s+not\s+follow\s+(any\s+)?(safety|content)\s+(guidelines|policies|rules)`),
+				description: "safety bypass attempt",
+				weight:      0.95,
+			},
+			{
+				regex:       regexp.MustCompile(`(?i)pretend\s+(you\s+)?(are|have)\s+no\s+(restrictions|limits|rules)`),
+				description: "restriction removal attempt",
+				weight:      0.9,
+			},
+			{
+				regex:       regexp.MustCompile(`(?i)<\s*script\s*>`),
+				description: "HTML script injection",
+				weight:      0.7,
+			},
+			{
+				regex:       regexp.MustCompile(`(?i)\{\{.*\}\}`),
+				description: "template injection attempt",
+				weight:      0.6,
 			},
 		},
 	}
 }
 
-// Detect scans the content for prompt injection patterns.
-func (d *PromptInjectionDetector) Detect(ctx context.Context, input ScanInput) ThreatResult {
-	if input.Content == "" {
-		return ThreatResult{Kind: ThreatKindPromptInjection, Level: ThreatLevelNone}
-	}
-
-	lower := strings.ToLower(input.Content)
-	var totalScore float64
-	var matched []string
+// Detect scans the input text and returns findings for each matched pattern.
+func (d *PromptInjectionDetector) Detect(input string) []ThreatFinding {
+	var findings []ThreatFinding
 
 	for _, p := range d.patterns {
-		for _, marker := range p.markers {
-			if strings.Contains(lower, marker) {
-				totalScore += p.weight
-				matched = append(matched, p.name+":"+marker)
-			}
+		if p.regex.MatchString(input) {
+			findings = append(findings, ThreatFinding{
+				Detector:    "prompt_injection",
+				ThreatType:  "prompt_injection",
+				Pattern:     p.regex.String(),
+				Score:       p.weight,
+				Description: p.description,
+			})
 		}
 	}
 
-	// Normalize score to 0-1 range.
-	if totalScore > 1.0 {
-		totalScore = 1.0
-	}
-
-	result := ThreatResult{
-		Kind:     ThreatKindPromptInjection,
-		Score:    totalScore,
-		Patterns: matched,
-	}
-
-	switch {
-	case totalScore >= 0.8:
-		result.Detected = true
-		result.Level = ThreatLevelCritical
-		result.Blocked = true
-		result.Description = "high-confidence prompt injection detected"
-	case totalScore >= 0.5:
-		result.Detected = true
-		result.Level = ThreatLevelHigh
-		result.Blocked = true
-		result.Description = "likely prompt injection attempt"
-	case totalScore >= 0.3:
-		result.Detected = true
-		result.Level = ThreatLevelMedium
-		result.Blocked = false
-		result.Description = "possible prompt injection markers found"
-	case totalScore > 0:
-		result.Detected = true
-		result.Level = ThreatLevelLow
-		result.Blocked = false
-		result.Description = "minor injection indicators"
-	default:
-		result.Level = ThreatLevelNone
-		result.Description = "no injection detected"
-	}
-
-	if result.Detected {
-		d.logger.WarnContext(ctx, "prompt injection detected",
-			slog.Float64("score", totalScore),
-			slog.String("level", string(result.Level)),
-			slog.Bool("blocked", result.Blocked),
-		)
-	}
-
-	return result
+	return findings
 }
 
 // --- SSRF Checker ---
 
 // SSRFChecker validates destination URLs against an allowlist and blocks
-// requests to internal/private network addresses.
+// access to internal/private network ranges.
 type SSRFChecker struct {
-	logger       *slog.Logger
+	// allowedHosts is the set of hosts that are permitted as destinations.
+	// An empty set means all external hosts are allowed.
 	allowedHosts map[string]bool
+
+	// blockedCIDRs are private/internal network ranges that must never be
+	// accessed by the system.
+	blockedCIDRs []*net.IPNet
 }
 
-// NewSSRFChecker creates a checker with the given allowlist of hosts.
-func NewSSRFChecker(logger *slog.Logger, allowedHosts []string) *SSRFChecker {
-	hosts := make(map[string]bool, len(allowedHosts))
-	for _, h := range allowedHosts {
-		hosts[strings.ToLower(h)] = true
+// NewSSRFChecker creates a checker with the standard blocked CIDR ranges
+// for private networks.
+func NewSSRFChecker() *SSRFChecker {
+	blocked := []string{
+		"127.0.0.0/8",    // loopback
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918
+		"192.168.0.0/16", // RFC 1918
+		"169.254.0.0/16", // link-local
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 unique local
+		"fe80::/10",      // IPv6 link-local
 	}
+
+	cidrs := make([]*net.IPNet, 0, len(blocked))
+	for _, cidr := range blocked {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil {
+			cidrs = append(cidrs, ipNet)
+		}
+	}
+
 	return &SSRFChecker{
-		logger:       logger,
-		allowedHosts: hosts,
+		allowedHosts: make(map[string]bool),
+		blockedCIDRs: cidrs,
 	}
 }
 
-// Detect checks whether the URL in the input targets an allowed destination.
-func (c *SSRFChecker) Detect(ctx context.Context, input ScanInput) ThreatResult {
-	if input.URL == "" {
-		return ThreatResult{Kind: ThreatKindSSRF, Level: ThreatLevelNone, Description: "no URL provided"}
-	}
+// AddAllowedHost adds a host to the allowlist. If any hosts are allowlisted,
+// only those hosts are permitted.
+func (c *SSRFChecker) AddAllowedHost(host string) {
+	c.allowedHosts[strings.ToLower(host)] = true
+}
 
-	parsed, err := url.Parse(input.URL)
+// Check evaluates a destination URL for SSRF risk.
+func (c *SSRFChecker) Check(destination string) []ThreatFinding {
+	var findings []ThreatFinding
+
+	parsed, err := url.Parse(destination)
 	if err != nil {
-		return ThreatResult{
-			Kind:        ThreatKindSSRF,
-			Detected:    true,
-			Level:       ThreatLevelHigh,
+		findings = append(findings, ThreatFinding{
+			Detector:    "ssrf",
+			ThreatType:  "ssrf",
+			Score:       0.8,
+			Description: "malformed destination URL",
+		})
+		return findings
+	}
+
+	hostname := parsed.Hostname()
+
+	// Check scheme.
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		findings = append(findings, ThreatFinding{
+			Detector:    "ssrf",
+			ThreatType:  "ssrf",
 			Score:       0.9,
-			Blocked:     true,
-			Description: "malformed URL",
+			Description: "non-HTTP scheme: " + parsed.Scheme,
+		})
+		return findings
+	}
+
+	// Check allowlist if configured.
+	if len(c.allowedHosts) > 0 && !c.allowedHosts[strings.ToLower(hostname)] {
+		findings = append(findings, ThreatFinding{
+			Detector:    "ssrf",
+			ThreatType:  "ssrf",
+			Score:       0.85,
+			Description: "destination host not in allowlist: " + hostname,
+		})
+		return findings
+	}
+
+	// Resolve and check against blocked CIDRs.
+	ip := net.ParseIP(hostname)
+	if ip != nil {
+		for _, cidr := range c.blockedCIDRs {
+			if cidr.Contains(ip) {
+				findings = append(findings, ThreatFinding{
+					Detector:    "ssrf",
+					ThreatType:  "ssrf",
+					Score:       0.95,
+					Description: "destination resolves to private/internal network: " + hostname,
+				})
+				return findings
+			}
 		}
 	}
 
-	// Block non-HTTP(S) schemes.
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return ThreatResult{
-			Kind:        ThreatKindSSRF,
-			Detected:    true,
-			Level:       ThreatLevelCritical,
-			Score:       1.0,
-			Blocked:     true,
-			Description: "non-HTTP scheme blocked: " + scheme,
+	// Check for common SSRF bypass patterns (cloud metadata endpoints).
+	lower := strings.ToLower(hostname)
+	suspiciousPatterns := []string{
+		"metadata.google.internal",
+		"169.254.169.254",
+		"metadata.azure",
+		"instance-data",
+	}
+	for _, pattern := range suspiciousPatterns {
+		if strings.Contains(lower, pattern) {
+			findings = append(findings, ThreatFinding{
+				Detector:    "ssrf",
+				ThreatType:  "ssrf",
+				Score:       0.95,
+				Description: "cloud metadata endpoint access attempt: " + hostname,
+			})
+			return findings
 		}
 	}
 
-	host := strings.ToLower(parsed.Hostname())
-
-	// Block private/internal IP ranges.
-	if isPrivateHost(host) {
-		c.logger.WarnContext(ctx, "SSRF: private network target blocked",
-			slog.String("url", input.URL),
-			slog.String("host", host),
-		)
-		return ThreatResult{
-			Kind:        ThreatKindSSRF,
-			Detected:    true,
-			Level:       ThreatLevelCritical,
-			Score:       1.0,
-			Blocked:     true,
-			Description: "request to private/internal network blocked",
-		}
-	}
-
-	// If an allowlist is configured, enforce it.
-	if len(c.allowedHosts) > 0 && !c.allowedHosts[host] {
-		c.logger.WarnContext(ctx, "SSRF: host not in allowlist",
-			slog.String("url", input.URL),
-			slog.String("host", host),
-		)
-		return ThreatResult{
-			Kind:        ThreatKindSSRF,
-			Detected:    true,
-			Level:       ThreatLevelMedium,
-			Score:       0.6,
-			Blocked:     true,
-			Description: "host not in destination allowlist",
-		}
-	}
-
-	return ThreatResult{
-		Kind:        ThreatKindSSRF,
-		Level:       ThreatLevelNone,
-		Description: "URL passes SSRF checks",
-	}
-}
-
-// isPrivateHost checks whether a hostname resolves to a private/internal
-// network address or is a known internal hostname.
-func isPrivateHost(host string) bool {
-	// Check well-known internal hostnames.
-	internalNames := []string{
-		"localhost", "127.0.0.1", "0.0.0.0", "::1",
-		"metadata.google.internal", "169.254.169.254",
-		"metadata.internal",
-	}
-	for _, name := range internalNames {
-		if host == name {
-			return true
-		}
-	}
-
-	// Check if it parses as a private IP.
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-
-	privateRanges := []struct {
-		network string
-	}{
-		{"10.0.0.0/8"},
-		{"172.16.0.0/12"},
-		{"192.168.0.0/16"},
-		{"127.0.0.0/8"},
-		{"169.254.0.0/16"},
-		{"fc00::/7"},
-		{"fe80::/10"},
-	}
-
-	for _, r := range privateRanges {
-		_, cidr, err := net.ParseCIDR(r.network)
-		if err != nil {
-			continue
-		}
-		if cidr.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+	return findings
 }
 
 // --- Anomaly Scorer ---
 
-// AnomalyScorer evaluates requests for unusual patterns that might indicate
-// automated attacks or misuse.
+// AnomalyScorer tracks request volume per source key and flags anomalous
+// bursts that may indicate abuse or a compromised agent.
 type AnomalyScorer struct {
-	logger *slog.Logger
+	mu        sync.Mutex
+	window    time.Duration
+	maxVolume int
+	buckets   map[string][]time.Time
 }
 
-// NewAnomalyScorer creates a new AnomalyScorer.
-func NewAnomalyScorer(logger *slog.Logger) *AnomalyScorer {
-	return &AnomalyScorer{logger: logger}
+// NewAnomalyScorer creates a scorer with the given window and threshold.
+func NewAnomalyScorer(window time.Duration, maxVolume int) *AnomalyScorer {
+	return &AnomalyScorer{
+		window:    window,
+		maxVolume: maxVolume,
+		buckets:   make(map[string][]time.Time),
+	}
 }
 
-// Detect scores the input for anomalous characteristics.
-func (s *AnomalyScorer) Detect(ctx context.Context, input ScanInput) ThreatResult {
-	var score float64
-	var reasons []string
+// Score records a request for the given key and returns findings if the
+// volume exceeds the threshold.
+func (a *AnomalyScorer) Score(key string) []ThreatFinding {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-	// Check content length (extremely long inputs may be attacks).
-	if len(input.Content) > 10000 {
-		score += 0.3
-		reasons = append(reasons, "excessive_content_length")
-	}
+	now := time.Now().UTC()
+	cutoff := now.Add(-a.window)
 
-	// Check for repetitive patterns (may indicate token-stuffing).
-	if hasRepetitivePatterns(input.Content) {
-		score += 0.2
-		reasons = append(reasons, "repetitive_patterns")
-	}
-
-	// Check for high Unicode diversity (encoding evasion).
-	if hasHighUnicodeDiversity(input.Content) {
-		score += 0.2
-		reasons = append(reasons, "high_unicode_diversity")
-	}
-
-	// Check for embedded code patterns.
-	codeMarkers := []string{"<script", "javascript:", "eval(", "exec(", "import os", "subprocess"}
-	lower := strings.ToLower(input.Content)
-	for _, marker := range codeMarkers {
-		if strings.Contains(lower, marker) {
-			score += 0.15
-			reasons = append(reasons, "embedded_code:"+marker)
+	// Prune old entries and add current.
+	times := a.buckets[key]
+	pruned := make([]time.Time, 0, len(times))
+	for _, t := range times {
+		if t.After(cutoff) {
+			pruned = append(pruned, t)
 		}
 	}
+	pruned = append(pruned, now)
+	a.buckets[key] = pruned
 
+	count := len(pruned)
+	if count <= a.maxVolume {
+		return nil
+	}
+
+	// Calculate how far over the threshold we are.
+	ratio := float64(count) / float64(a.maxVolume)
+	score := 0.5 + (ratio-1.0)*0.25
 	if score > 1.0 {
 		score = 1.0
 	}
 
-	result := ThreatResult{
-		Kind:     ThreatKindAnomaly,
-		Score:    score,
-		Patterns: reasons,
-	}
-
-	switch {
-	case score >= 0.7:
-		result.Detected = true
-		result.Level = ThreatLevelHigh
-		result.Blocked = true
-		result.Description = "high anomaly score"
-	case score >= 0.4:
-		result.Detected = true
-		result.Level = ThreatLevelMedium
-		result.Blocked = false
-		result.Description = "moderate anomaly indicators"
-	case score > 0:
-		result.Detected = true
-		result.Level = ThreatLevelLow
-		result.Blocked = false
-		result.Description = "minor anomaly indicators"
-	default:
-		result.Level = ThreatLevelNone
-		result.Description = "no anomalies detected"
-	}
-
-	if result.Detected {
-		s.logger.InfoContext(ctx, "anomaly detected",
-			slog.Float64("score", score),
-			slog.String("level", string(result.Level)),
-		)
-	}
-
-	return result
-}
-
-// hasRepetitivePatterns checks for repeated substrings that could indicate
-// token-stuffing or payload amplification.
-func hasRepetitivePatterns(s string) bool {
-	if len(s) < 100 {
-		return false
-	}
-
-	// Check if any 20-character substring repeats more than 3 times.
-	windowSize := 20
-	counts := make(map[string]int)
-	for i := 0; i <= len(s)-windowSize; i += windowSize {
-		chunk := s[i : i+windowSize]
-		counts[chunk]++
-		if counts[chunk] > 3 {
-			return true
-		}
-	}
-	return false
-}
-
-// hasHighUnicodeDiversity checks for unusual Unicode character distribution
-// which may indicate encoding-based evasion.
-func hasHighUnicodeDiversity(s string) bool {
-	if len(s) < 50 {
-		return false
-	}
-
-	var nonASCII int
-	for _, r := range s {
-		if r > 127 {
-			nonASCII++
-		}
-	}
-
-	ratio := float64(nonASCII) / float64(len([]rune(s)))
-	return ratio > 0.3
-}
-
-// --- Composite Detector ---
-
-// CompositeThreatDetector runs all registered detectors and returns the
-// highest-severity result.
-type CompositeThreatDetector struct {
-	detectors []ThreatDetector
-	logger    *slog.Logger
-}
-
-// NewCompositeThreatDetector creates a detector with the standard set of
-// threat detection components.
-func NewCompositeThreatDetector(logger *slog.Logger) *CompositeThreatDetector {
-	return &CompositeThreatDetector{
-		detectors: []ThreatDetector{
-			NewPromptInjectionDetector(logger),
-			NewSSRFChecker(logger, nil), // No allowlist by default; blocks private ranges only.
-			NewAnomalyScorer(logger),
+	return []ThreatFinding{
+		{
+			Detector:    "anomaly",
+			ThreatType:  "volume_anomaly",
+			Score:       score,
+			Description: "request volume exceeds threshold for source key",
 		},
-		logger: logger,
 	}
 }
 
-// DetectAll runs all detectors and returns all results.
-func (c *CompositeThreatDetector) DetectAll(ctx context.Context, input ScanInput) []ThreatResult {
-	results := make([]ThreatResult, 0, len(c.detectors))
-	for _, d := range c.detectors {
-		results = append(results, d.Detect(ctx, input))
+// --- Helpers ---
+
+func scoreSeverity(score float64) string {
+	switch {
+	case score >= 0.9:
+		return "critical"
+	case score >= 0.7:
+		return "high"
+	case score >= 0.5:
+		return "medium"
+	case score > 0:
+		return "low"
+	default:
+		return "none"
 	}
-	return results
 }
 
-// DetectHighest runs all detectors and returns the single highest-severity
-// result. If nothing is detected, it returns a clean result.
-func (c *CompositeThreatDetector) DetectHighest(ctx context.Context, input ScanInput) ThreatResult {
-	results := c.DetectAll(ctx, input)
-
-	var highest ThreatResult
-	for _, r := range results {
-		if r.Score > highest.Score {
-			highest = r
-		}
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
 	}
-	return highest
+	return s[:maxLen] + "..."
 }
 
-// --- HTTP Handlers ---
-
-// Handler provides HTTP handlers for the defense service API.
-type Handler struct {
-	logger   *slog.Logger
-	detector *CompositeThreatDetector
-}
-
-// NewHandler creates a new Handler.
-func NewHandler(logger *slog.Logger, detector *CompositeThreatDetector) *Handler {
-	return &Handler{logger: logger, detector: detector}
-}
-
-// HealthCheck responds with the service health status.
-func (h *Handler) HealthCheck(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"service": "defense",
-		"time":    time.Now().UTC(),
-	})
-}
-
-// ScanPrompt handles POST /api/v1/scan/prompt.
-func (h *Handler) ScanPrompt(w http.ResponseWriter, r *http.Request) {
-	var input ScanInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	detector := NewPromptInjectionDetector(h.logger)
-	result := detector.Detect(r.Context(), input)
-
-	status := http.StatusOK
-	if result.Blocked {
-		status = http.StatusForbidden
-	}
-	writeJSON(w, status, result)
-}
-
-// ScanURL handles POST /api/v1/scan/url.
-func (h *Handler) ScanURL(w http.ResponseWriter, r *http.Request) {
-	var input ScanInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	checker := NewSSRFChecker(h.logger, nil)
-	result := checker.Detect(r.Context(), input)
-
-	status := http.StatusOK
-	if result.Blocked {
-		status = http.StatusForbidden
-	}
-	writeJSON(w, status, result)
-}
-
-// ScanRequest handles POST /api/v1/scan/request - runs all detectors.
-func (h *Handler) ScanRequest(w http.ResponseWriter, r *http.Request) {
-	var input ScanInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	results := h.detector.DetectAll(r.Context(), input)
-
-	anyBlocked := false
-	for _, res := range results {
-		if res.Blocked {
-			anyBlocked = true
-			break
-		}
-	}
-
-	status := http.StatusOK
-	if anyBlocked {
-		status = http.StatusForbidden
-	}
-
-	writeJSON(w, status, map[string]any{
-		"results": results,
-		"blocked": anyBlocked,
-	})
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+func generateID() string {
+	return time.Now().UTC().Format("20060102150405.000000000")
 }

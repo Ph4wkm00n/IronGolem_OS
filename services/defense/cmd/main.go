@@ -1,13 +1,13 @@
 // Package main is the entry point for the IronGolem OS Defense service.
 //
-// The defense service implements the "self-defending loop" by detecting
-// threats such as prompt injection, SSRF attempts, and anomalous behavior.
-// It operates as a sidecar to the gateway and other services, evaluating
-// requests before they reach the runtime.
+// The defense service is the self-defending layer of the platform. It checks
+// inputs for prompt injection, SSRF attempts, and anomalous behavior patterns.
+// Blocked actions and quarantined items are tracked for audit and review.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Ph4wkm00n/IronGolem_OS/services/defense/internal"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 )
 
@@ -25,14 +26,89 @@ func main() {
 	logger := telemetry.SetupLogger(cfg)
 	slog.SetDefault(logger)
 
-	detector := internal.NewCompositeThreatDetector(logger)
-	h := internal.NewHandler(logger, detector)
+	detector := internal.NewThreatDetector(logger, internal.DetectorConfig{
+		InjectionThreshold: 0.7,
+		AnomalyWindow:     5 * time.Minute,
+		AnomalyMaxVolume:  100,
+	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", h.HealthCheck)
-	mux.HandleFunc("POST /api/v1/scan/prompt", h.ScanPrompt)
-	mux.HandleFunc("POST /api/v1/scan/url", h.ScanURL)
-	mux.HandleFunc("POST /api/v1/scan/request", h.ScanRequest)
+
+	// Health check.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "ok",
+			"service": "defense",
+			"time":    time.Now().UTC(),
+		})
+	})
+
+	// Check input for threats.
+	mux.HandleFunc("POST /api/v1/defense/check", func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := telemetry.NewSpan(r.Context(), "defense.check_input")
+		defer span.End(logger)
+
+		var req internal.CheckRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid request body",
+			})
+			return
+		}
+
+		if req.Input == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "input is required",
+			})
+			return
+		}
+
+		assessment := detector.Assess(ctx, req)
+
+		// If any threats were detected and blocked, emit an event.
+		if assessment.Blocked {
+			payload, _ := json.Marshal(events.ThreatPayload{
+				ThreatType:  assessment.PrimaryThreat,
+				Severity:    assessment.Severity,
+				Description: assessment.Summary,
+				Score:       assessment.Score,
+				Blocked:     true,
+			})
+			evt := events.NewEvent(events.EventKindThreatDetected, req.TenantID, "defense", payload)
+			logger.WarnContext(ctx, "threat blocked",
+				slog.String("event_id", evt.ID),
+				slog.String("threat_type", assessment.PrimaryThreat),
+				slog.Float64("score", assessment.Score),
+				slog.String("tenant_id", req.TenantID),
+			)
+		}
+
+		writeJSON(w, http.StatusOK, assessment)
+	})
+
+	// List blocked actions.
+	mux.HandleFunc("GET /api/v1/defense/blocked", func(w http.ResponseWriter, r *http.Request) {
+		_, span := telemetry.NewSpan(r.Context(), "defense.list_blocked")
+		defer span.End(logger)
+
+		blocked := detector.ListBlocked()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"blocked": blocked,
+			"count":   len(blocked),
+		})
+	})
+
+	// List quarantined items.
+	mux.HandleFunc("GET /api/v1/defense/quarantine", func(w http.ResponseWriter, r *http.Request) {
+		_, span := telemetry.NewSpan(r.Context(), "defense.list_quarantined")
+		defer span.End(logger)
+
+		quarantined := detector.ListQuarantined()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"quarantined": quarantined,
+			"count":       len(quarantined),
+		})
+	})
 
 	addr := envOrDefault("DEFENSE_ADDR", ":8083")
 	srv := &http.Server{
@@ -72,4 +148,10 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
 }
