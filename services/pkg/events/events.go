@@ -50,6 +50,16 @@ const (
 	// Self-healing events
 	EventKindHealingTriggered EventKind = "healing.triggered"
 	EventKindHealingResolved  EventKind = "healing.resolved"
+
+	// Recipe events
+	EventKindRecipeActivated   EventKind = "recipe.activated"
+	EventKindRecipeDeactivated EventKind = "recipe.deactivated"
+
+	// Approval events
+	EventKindApprovalRequested EventKind = "approval.requested"
+	EventKindApprovalApproved  EventKind = "approval.approved"
+	EventKindApprovalDenied    EventKind = "approval.denied"
+	EventKindApprovalExpired   EventKind = "approval.expired"
 )
 
 // HeartbeatStatus represents the health state of a service or agent.
