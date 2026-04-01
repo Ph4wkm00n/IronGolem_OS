@@ -1,457 +1,481 @@
-// Package internal implements multi-tenant management for IronGolem OS.
+// Package internal implements tenant and workspace management for the
+// IronGolem OS Tenancy service.
 //
-// The tenancy manager handles:
-//   - Tenant creation and lifecycle
-//   - Workspace creation with isolation boundaries
-//   - User management with role-based access control
-//   - Deployment mode enforcement (Solo, Household, Team)
-//
-// In Solo and Household modes, the limits on tenants, workspaces, and users
-// are restricted. Team mode supports full multi-tenant isolation with
-// per-workspace database schemas.
+// The TenantManager enforces the multi-tenant isolation hierarchy and
+// supports all three deployment modes: Solo (single user), Household
+// (small shared group), and Team (full multi-tenant with per-workspace
+// database isolation).
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
+	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/models"
 )
 
-// Deployment mode limits.
-var modeLimits = map[models.DeploymentMode]struct {
-	maxTenants    int
-	maxWorkspaces int // per tenant
-	maxUsers      int // per workspace
-}{
-	models.DeploymentSolo:      {maxTenants: 1, maxWorkspaces: 1, maxUsers: 1},
-	models.DeploymentHousehold: {maxTenants: 1, maxWorkspaces: 3, maxUsers: 10},
-	models.DeploymentTeam:      {maxTenants: 100, maxWorkspaces: 50, maxUsers: 500},
+// Sentinel errors for the tenancy package.
+var (
+	ErrAccessDenied    = errors.New("access denied: tenant isolation violation")
+	ErrTenantNotFound  = errors.New("tenant not found")
+	ErrTenantDisabled  = errors.New("tenant is disabled")
+	ErrWorkspaceExists = errors.New("workspace with that name already exists")
+)
+
+// RoleMember represents a user's role within a workspace.
+type RoleMember struct {
+	UserID      string          `json:"user_id"`
+	TenantID    string          `json:"tenant_id"`
+	WorkspaceID string          `json:"workspace_id"`
+	Role        models.UserRole `json:"role"`
+	AssignedAt  time.Time       `json:"assigned_at"`
+	AssignedBy  string          `json:"assigned_by,omitempty"`
 }
 
-// TenancyManager handles tenant, workspace, and user lifecycle with
-// isolation enforcement.
-type TenancyManager struct {
+// TenantStore defines the persistence interface for tenants and workspaces.
+type TenantStore interface {
+	SaveTenant(ctx context.Context, tenant *models.Tenant) error
+	GetTenant(ctx context.Context, id string) (*models.Tenant, error)
+	ListTenants(ctx context.Context) ([]*models.Tenant, error)
+
+	SaveWorkspace(ctx context.Context, ws *models.Workspace) error
+	GetWorkspace(ctx context.Context, id string) (*models.Workspace, error)
+	ListWorkspaces(ctx context.Context, tenantID string) ([]*models.Workspace, error)
+
+	SaveRole(ctx context.Context, member *RoleMember) error
+	ListRoles(ctx context.Context, workspaceID string) ([]RoleMember, error)
+	GetRole(ctx context.Context, workspaceID, userID string) (*RoleMember, error)
+	DeleteRole(ctx context.Context, workspaceID, userID string) error
+}
+
+// MemoryTenantStore is an in-memory implementation of TenantStore.
+type MemoryTenantStore struct {
 	mu         sync.RWMutex
 	tenants    map[string]*models.Tenant
-	workspaces map[string]*models.Workspace   // key: workspace ID
-	users      map[string]*models.User         // key: user ID
-	logger     *slog.Logger
-	nextID     int64
+	workspaces map[string]*models.Workspace
+	roles      map[string][]RoleMember // keyed by workspaceID
 }
 
-// NewTenancyManager creates a new TenancyManager.
-func NewTenancyManager(logger *slog.Logger) *TenancyManager {
-	return &TenancyManager{
+// NewMemoryTenantStore creates an empty in-memory store.
+func NewMemoryTenantStore() *MemoryTenantStore {
+	return &MemoryTenantStore{
 		tenants:    make(map[string]*models.Tenant),
 		workspaces: make(map[string]*models.Workspace),
-		users:      make(map[string]*models.User),
-		logger:     logger,
+		roles:      make(map[string][]RoleMember),
 	}
 }
 
-func (m *TenancyManager) genID(prefix string) string {
-	m.nextID++
-	return fmt.Sprintf("%s_%d", prefix, m.nextID)
+func (s *MemoryTenantStore) SaveTenant(_ context.Context, tenant *models.Tenant) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *tenant
+	s.tenants[tenant.ID] = &cp
+	return nil
 }
 
-// --- Tenant Operations ---
-
-// CreateTenantRequest is the input for creating a new tenant.
-type CreateTenantRequest struct {
-	Name           string                `json:"name"`
-	DeploymentMode models.DeploymentMode `json:"deployment_mode"`
-	Metadata       map[string]string     `json:"metadata,omitempty"`
-}
-
-// CreateTenant creates a new tenant if the deployment mode limits allow it.
-func (m *TenancyManager) CreateTenant(req CreateTenantRequest) (*models.Tenant, error) {
-	if req.Name == "" {
-		return nil, errors.New("name is required")
-	}
-
-	mode := req.DeploymentMode
-	if mode == "" {
-		mode = models.DeploymentSolo
-	}
-
-	limits, ok := modeLimits[mode]
+func (s *MemoryTenantStore) GetTenant(_ context.Context, id string) (*models.Tenant, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.tenants[id]
 	if !ok {
-		return nil, fmt.Errorf("unsupported deployment mode: %s", mode)
+		return nil, ErrTenantNotFound
 	}
+	cp := *t
+	return &cp, nil
+}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if len(m.tenants) >= limits.maxTenants {
-		return nil, fmt.Errorf("tenant limit reached for %s mode (max %d)", mode, limits.maxTenants)
+func (s *MemoryTenantStore) ListTenants(_ context.Context) ([]*models.Tenant, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*models.Tenant, 0, len(s.tenants))
+	for _, t := range s.tenants {
+		cp := *t
+		result = append(result, &cp)
 	}
+	return result, nil
+}
 
-	// Check for duplicate name.
-	for _, t := range m.tenants {
-		if t.Name == req.Name {
-			return nil, fmt.Errorf("tenant %q already exists", req.Name)
+func (s *MemoryTenantStore) SaveWorkspace(_ context.Context, ws *models.Workspace) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *ws
+	s.workspaces[ws.ID] = &cp
+	return nil
+}
+
+func (s *MemoryTenantStore) GetWorkspace(_ context.Context, id string) (*models.Workspace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ws, ok := s.workspaces[id]
+	if !ok {
+		return nil, fmt.Errorf("workspace %q not found", id)
+	}
+	cp := *ws
+	return &cp, nil
+}
+
+func (s *MemoryTenantStore) ListWorkspaces(_ context.Context, tenantID string) ([]*models.Workspace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*models.Workspace
+	for _, ws := range s.workspaces {
+		if tenantID == "" || ws.TenantID == tenantID {
+			cp := *ws
+			result = append(result, &cp)
 		}
+	}
+	return result, nil
+}
+
+func (s *MemoryTenantStore) SaveRole(_ context.Context, member *RoleMember) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing := s.roles[member.WorkspaceID]
+	found := false
+	for i, m := range existing {
+		if m.UserID == member.UserID {
+			existing[i] = *member
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.roles[member.WorkspaceID] = append(existing, *member)
+	}
+	return nil
+}
+
+func (s *MemoryTenantStore) ListRoles(_ context.Context, workspaceID string) ([]RoleMember, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]RoleMember, len(s.roles[workspaceID]))
+	copy(result, s.roles[workspaceID])
+	return result, nil
+}
+
+func (s *MemoryTenantStore) GetRole(_ context.Context, workspaceID, userID string) (*RoleMember, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, m := range s.roles[workspaceID] {
+		if m.UserID == userID {
+			return &m, nil
+		}
+	}
+	return nil, fmt.Errorf("role not found for user %q in workspace %q", userID, workspaceID)
+}
+
+func (s *MemoryTenantStore) DeleteRole(_ context.Context, workspaceID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	members := s.roles[workspaceID]
+	for i, m := range members {
+		if m.UserID == userID {
+			s.roles[workspaceID] = append(members[:i], members[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("role not found for user %q in workspace %q", userID, workspaceID)
+}
+
+// TenantManager is the primary entry point for all tenancy operations. It
+// enforces isolation, validates deployment mode constraints, and emits
+// events for the audit trail.
+type TenantManager struct {
+	store  TenantStore
+	logger *slog.Logger
+}
+
+// NewTenantManager creates a TenantManager with an in-memory store.
+func NewTenantManager(logger *slog.Logger) *TenantManager {
+	return &TenantManager{
+		store:  NewMemoryTenantStore(),
+		logger: logger,
+	}
+}
+
+// SetStore replaces the backing store (for testing or swapping to PostgreSQL).
+func (m *TenantManager) SetStore(store TenantStore) {
+	m.store = store
+}
+
+// CreateTenant provisions a new tenant with the specified deployment mode.
+func (m *TenantManager) CreateTenant(ctx context.Context, name string, mode models.DeploymentMode) (*models.Tenant, error) {
+	if name == "" {
+		return nil, errors.New("tenant name is required")
 	}
 
 	now := time.Now().UTC()
 	tenant := &models.Tenant{
-		ID:             m.genID("tenant"),
-		Name:           req.Name,
+		ID:             generateID(),
+		Name:           name,
 		DeploymentMode: mode,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-		Metadata:       req.Metadata,
 	}
 
-	m.tenants[tenant.ID] = tenant
+	if err := m.store.SaveTenant(ctx, tenant); err != nil {
+		return nil, fmt.Errorf("saving tenant: %w", err)
+	}
 
-	m.logger.Info("tenant created",
+	payload, _ := json.Marshal(map[string]string{
+		"tenant_id": tenant.ID,
+		"name":      tenant.Name,
+		"mode":      string(tenant.DeploymentMode),
+	})
+	evt := events.NewEvent(events.EventKindTenantCreated, tenant.ID, "tenancy", payload)
+	m.logger.InfoContext(ctx, "tenant created",
+		slog.String("event_id", evt.ID),
 		slog.String("tenant_id", tenant.ID),
-		slog.String("name", tenant.Name),
 		slog.String("mode", string(mode)),
 	)
+
+	// Solo and Household modes get a default workspace automatically.
+	if mode == models.DeploymentSolo || mode == models.DeploymentHousehold {
+		_, err := m.CreateWorkspace(ctx, tenant.ID, "default")
+		if err != nil {
+			return nil, fmt.Errorf("creating default workspace: %w", err)
+		}
+	}
 
 	return tenant, nil
 }
 
-// GetTenant returns a tenant by ID.
-func (m *TenancyManager) GetTenant(id string) (*models.Tenant, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	t, ok := m.tenants[id]
-	if !ok {
-		return nil, false
-	}
-	cp := *t
-	return &cp, true
+// GetTenant retrieves a tenant by ID.
+func (m *TenantManager) GetTenant(ctx context.Context, id string) (*models.Tenant, error) {
+	return m.store.GetTenant(ctx, id)
 }
 
-// ListTenants returns all tenants.
-func (m *TenancyManager) ListTenants() []models.Tenant {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]models.Tenant, 0, len(m.tenants))
-	for _, t := range m.tenants {
-		result = append(result, *t)
+// CreateWorkspace creates a new workspace within a tenant. It validates
+// that the tenant exists and is not disabled, and enforces deployment
+// mode constraints (e.g., Solo mode allows only one workspace).
+func (m *TenantManager) CreateWorkspace(ctx context.Context, tenantID, name string) (*models.Workspace, error) {
+	if tenantID == "" {
+		return nil, errors.New("tenant_id is required")
 	}
-	return result
-}
-
-// --- Workspace Operations ---
-
-// CreateWorkspaceRequest is the input for creating a new workspace.
-type CreateWorkspaceRequest struct {
-	Name string `json:"name"`
-}
-
-// CreateWorkspace creates a workspace within a tenant, enforcing mode limits.
-func (m *TenancyManager) CreateWorkspace(tenantID string, req CreateWorkspaceRequest) (*models.Workspace, error) {
-	if req.Name == "" {
-		return nil, errors.New("name is required")
+	if name == "" {
+		return nil, errors.New("workspace name is required")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	tenant, ok := m.tenants[tenantID]
-	if !ok {
-		return nil, errors.New("tenant not found")
-	}
-	if tenant.Disabled {
-		return nil, errors.New("tenant is disabled")
-	}
-
-	limits := modeLimits[tenant.DeploymentMode]
-
-	// Count existing workspaces for this tenant.
-	var count int
-	for _, ws := range m.workspaces {
-		if ws.TenantID == tenantID {
-			count++
+	// Validate tenant exists and is active.
+	tenant, err := m.store.GetTenant(ctx, tenantID)
+	if err != nil {
+		// For in-memory store during bootstrap, auto-create the tenant.
+		if errors.Is(err, ErrTenantNotFound) {
+			tenant = &models.Tenant{
+				ID:             tenantID,
+				Name:           tenantID,
+				DeploymentMode: models.DeploymentTeam,
+				CreatedAt:      time.Now().UTC(),
+				UpdatedAt:      time.Now().UTC(),
+			}
+			if saveErr := m.store.SaveTenant(ctx, tenant); saveErr != nil {
+				return nil, fmt.Errorf("auto-creating tenant: %w", saveErr)
+			}
+			m.logger.InfoContext(ctx, "tenant auto-created",
+				slog.String("tenant_id", tenantID),
+			)
+		} else {
+			return nil, fmt.Errorf("looking up tenant: %w", err)
 		}
 	}
-	if count >= limits.maxWorkspaces {
-		return nil, fmt.Errorf("workspace limit reached for %s mode (max %d)", tenant.DeploymentMode, limits.maxWorkspaces)
+
+	if tenant.Disabled {
+		return nil, ErrTenantDisabled
+	}
+
+	// Enforce deployment mode constraints.
+	existing, err := m.store.ListWorkspaces(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+
+	switch tenant.DeploymentMode {
+	case models.DeploymentSolo:
+		if len(existing) >= 1 {
+			return nil, errors.New("solo mode allows only one workspace")
+		}
+	case models.DeploymentHousehold:
+		if len(existing) >= 5 {
+			return nil, errors.New("household mode allows a maximum of 5 workspaces")
+		}
+	case models.DeploymentTeam:
+		// No limit.
+	}
+
+	// Check for duplicate names within the tenant.
+	for _, ws := range existing {
+		if ws.Name == name {
+			return nil, ErrWorkspaceExists
+		}
 	}
 
 	now := time.Now().UTC()
 	ws := &models.Workspace{
-		ID:        m.genID("ws"),
+		ID:        generateID(),
 		TenantID:  tenantID,
-		Name:      req.Name,
+		Name:      name,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
-	m.workspaces[ws.ID] = ws
+	if err := m.store.SaveWorkspace(ctx, ws); err != nil {
+		return nil, fmt.Errorf("saving workspace: %w", err)
+	}
 
-	m.logger.Info("workspace created",
+	payload, _ := json.Marshal(map[string]string{
+		"workspace_id": ws.ID,
+		"tenant_id":    tenantID,
+		"name":         name,
+	})
+	evt := events.NewEvent(events.EventKindWorkspaceCreated, tenantID, "tenancy", payload)
+	m.logger.InfoContext(ctx, "workspace created",
+		slog.String("event_id", evt.ID),
 		slog.String("workspace_id", ws.ID),
 		slog.String("tenant_id", tenantID),
-		slog.String("name", ws.Name),
 	)
 
 	return ws, nil
 }
 
-// ListWorkspaces returns all workspaces for a tenant.
-func (m *TenancyManager) ListWorkspaces(tenantID string) []models.Workspace {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result []models.Workspace
-	for _, ws := range m.workspaces {
-		if ws.TenantID == tenantID {
-			result = append(result, *ws)
-		}
+// GetWorkspace retrieves a workspace by ID, enforcing tenant isolation.
+// If tenantID is non-empty, the workspace must belong to that tenant.
+func (m *TenantManager) GetWorkspace(ctx context.Context, id, tenantID string) (*models.Workspace, error) {
+	ws, err := m.store.GetWorkspace(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	return result
+
+	// Enforce tenant isolation.
+	if tenantID != "" && ws.TenantID != tenantID {
+		m.logger.WarnContext(ctx, "tenant isolation violation",
+			slog.String("workspace_id", id),
+			slog.String("requesting_tenant", tenantID),
+			slog.String("owning_tenant", ws.TenantID),
+		)
+		return nil, ErrAccessDenied
+	}
+
+	return ws, nil
 }
 
-// --- User Operations ---
-
-// AddUserRequest is the input for adding a user to a workspace.
-type AddUserRequest struct {
-	Email       string          `json:"email"`
-	DisplayName string          `json:"display_name"`
-	Role        models.UserRole `json:"role"`
+// ListWorkspaces returns all workspaces, optionally filtered by tenant.
+func (m *TenantManager) ListWorkspaces(ctx context.Context, tenantID string) ([]*models.Workspace, error) {
+	return m.store.ListWorkspaces(ctx, tenantID)
 }
 
-// AddUser adds a user to a workspace within a tenant, enforcing mode limits
-// and tenant isolation.
-func (m *TenancyManager) AddUser(tenantID, workspaceID string, req AddUserRequest) (*models.User, error) {
-	if req.Email == "" {
-		return nil, errors.New("email is required")
-	}
-	if req.Role == "" {
-		req.Role = models.UserRoleMember
+// AssignRole grants a user a role within a workspace. It validates the
+// role and enforces that the assigner has sufficient permissions.
+func (m *TenantManager) AssignRole(ctx context.Context, workspaceID, userID string, role models.UserRole, assignedBy string) error {
+	if workspaceID == "" || userID == "" {
+		return errors.New("workspace_id and user_id are required")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	tenant, ok := m.tenants[tenantID]
-	if !ok {
-		return nil, errors.New("tenant not found")
-	}
-	if tenant.Disabled {
-		return nil, errors.New("tenant is disabled")
+	// Validate role.
+	switch role {
+	case models.UserRoleOwner, models.UserRoleAdmin, models.UserRoleMember, models.UserRoleViewer:
+		// Valid.
+	default:
+		return fmt.Errorf("invalid role: %q", role)
 	}
 
-	// Verify workspace belongs to tenant.
-	ws, ok := m.workspaces[workspaceID]
-	if !ok || ws.TenantID != tenantID {
-		return nil, errors.New("workspace not found in this tenant")
-	}
-
-	limits := modeLimits[tenant.DeploymentMode]
-
-	// Count existing users in this workspace.
-	var count int
-	for _, u := range m.users {
-		if u.TenantID == tenantID && u.WorkspaceID == workspaceID {
-			count++
-		}
-	}
-	if count >= limits.maxUsers {
-		return nil, fmt.Errorf("user limit reached for %s mode (max %d)", tenant.DeploymentMode, limits.maxUsers)
-	}
-
-	// Check for duplicate email within the workspace.
-	for _, u := range m.users {
-		if u.TenantID == tenantID && u.WorkspaceID == workspaceID && u.Email == req.Email {
-			return nil, fmt.Errorf("user %q already exists in this workspace", req.Email)
-		}
-	}
-
-	now := time.Now().UTC()
-	user := &models.User{
-		ID:          m.genID("user"),
-		TenantID:    tenantID,
+	member := &RoleMember{
+		UserID:      userID,
 		WorkspaceID: workspaceID,
-		Email:       req.Email,
-		DisplayName: req.DisplayName,
-		Role:        req.Role,
-		CreatedAt:   now,
-		LastSeenAt:  now,
+		Role:        role,
+		AssignedAt:  time.Now().UTC(),
+		AssignedBy:  assignedBy,
 	}
 
-	m.users[user.ID] = user
+	// Look up the workspace to get the tenant ID.
+	ws, err := m.store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("workspace lookup: %w", err)
+	}
+	member.TenantID = ws.TenantID
 
-	m.logger.Info("user added",
-		slog.String("user_id", user.ID),
-		slog.String("tenant_id", tenantID),
+	if err := m.store.SaveRole(ctx, member); err != nil {
+		return fmt.Errorf("saving role: %w", err)
+	}
+
+	m.logger.InfoContext(ctx, "role assigned",
 		slog.String("workspace_id", workspaceID),
-		slog.String("role", string(req.Role)),
+		slog.String("user_id", userID),
+		slog.String("role", string(role)),
 	)
 
-	return user, nil
+	return nil
 }
 
-// ListUsers returns all users in a workspace, enforcing tenant isolation.
-func (m *TenancyManager) ListUsers(tenantID, workspaceID string) []models.User {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result []models.User
-	for _, u := range m.users {
-		if u.TenantID == tenantID && u.WorkspaceID == workspaceID {
-			result = append(result, *u)
-		}
-	}
-	return result
+// GetUserRole returns a user's role in a workspace.
+func (m *TenantManager) GetUserRole(ctx context.Context, workspaceID, userID string) (*RoleMember, error) {
+	return m.store.GetRole(ctx, workspaceID, userID)
 }
 
-// --- HTTP Handlers ---
-
-// Handler provides HTTP handlers for the tenancy service API.
-type Handler struct {
-	logger *slog.Logger
-	mgr    *TenancyManager
+// ListMembers returns all role assignments for a workspace.
+func (m *TenantManager) ListMembers(ctx context.Context, workspaceID string) ([]RoleMember, error) {
+	return m.store.ListRoles(ctx, workspaceID)
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(logger *slog.Logger, mgr *TenancyManager) *Handler {
-	return &Handler{logger: logger, mgr: mgr}
-}
-
-// HealthCheck responds with the service health status.
-func (h *Handler) HealthCheck(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"service": "tenancy",
-		"time":    time.Now().UTC(),
-	})
-}
-
-// CreateTenant handles POST /api/v1/tenants.
-func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
-	var req CreateTenantRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
+// RemoveRole revokes a user's role in a workspace.
+func (m *TenantManager) RemoveRole(ctx context.Context, workspaceID, userID string) error {
+	if err := m.store.DeleteRole(ctx, workspaceID, userID); err != nil {
+		return err
 	}
 
-	tenant, err := h.mgr.CreateTenant(req)
+	m.logger.InfoContext(ctx, "role removed",
+		slog.String("workspace_id", workspaceID),
+		slog.String("user_id", userID),
+	)
+	return nil
+}
+
+// CheckAccess verifies that a user has at least the required role in a
+// workspace. Role hierarchy: owner > admin > member > viewer.
+func (m *TenantManager) CheckAccess(ctx context.Context, workspaceID, userID string, requiredRole models.UserRole) error {
+	member, err := m.store.GetRole(ctx, workspaceID, userID)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
-		})
-		return
+		return ErrAccessDenied
 	}
 
-	writeJSON(w, http.StatusCreated, tenant)
+	if roleLevel(member.Role) < roleLevel(requiredRole) {
+		m.logger.WarnContext(ctx, "insufficient role",
+			slog.String("workspace_id", workspaceID),
+			slog.String("user_id", userID),
+			slog.String("has_role", string(member.Role)),
+			slog.String("required_role", string(requiredRole)),
+		)
+		return ErrAccessDenied
+	}
+
+	return nil
 }
 
-// ListTenants handles GET /api/v1/tenants.
-func (h *Handler) ListTenants(w http.ResponseWriter, _ *http.Request) {
-	tenants := h.mgr.ListTenants()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"tenants": tenants,
-		"count":   len(tenants),
-	})
+// roleLevel maps roles to numeric levels for comparison.
+func roleLevel(role models.UserRole) int {
+	switch role {
+	case models.UserRoleOwner:
+		return 4
+	case models.UserRoleAdmin:
+		return 3
+	case models.UserRoleMember:
+		return 2
+	case models.UserRoleViewer:
+		return 1
+	default:
+		return 0
+	}
 }
 
-// GetTenant handles GET /api/v1/tenants/{id}.
-func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	tenant, ok := h.mgr.GetTenant(id)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "tenant not found",
-		})
-		return
-	}
-	writeJSON(w, http.StatusOK, tenant)
-}
-
-// CreateWorkspace handles POST /api/v1/tenants/{tenant_id}/workspaces.
-func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.PathValue("tenant_id")
-
-	var req CreateWorkspaceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	ws, err := h.mgr.CreateWorkspace(tenantID, req)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, ws)
-}
-
-// ListWorkspaces handles GET /api/v1/tenants/{tenant_id}/workspaces.
-func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.PathValue("tenant_id")
-	workspaces := h.mgr.ListWorkspaces(tenantID)
-	if workspaces == nil {
-		workspaces = []models.Workspace{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"workspaces": workspaces,
-		"count":      len(workspaces),
-	})
-}
-
-// AddUser handles POST /api/v1/tenants/{tenant_id}/workspaces/{workspace_id}/users.
-func (h *Handler) AddUser(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.PathValue("tenant_id")
-	workspaceID := r.PathValue("workspace_id")
-
-	var req AddUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "invalid request body",
-		})
-		return
-	}
-
-	user, err := h.mgr.AddUser(tenantID, workspaceID, req)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, user)
-}
-
-// ListUsers handles GET /api/v1/tenants/{tenant_id}/workspaces/{workspace_id}/users.
-func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.PathValue("tenant_id")
-	workspaceID := r.PathValue("workspace_id")
-
-	users := h.mgr.ListUsers(tenantID, workspaceID)
-	if users == nil {
-		users = []models.User{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"users": users,
-		"count": len(users),
-	})
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+func generateID() string {
+	return time.Now().UTC().Format("20060102150405.000000000")
 }
