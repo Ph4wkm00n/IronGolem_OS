@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["gateway"]
+    ports:
+      - "8080:8080"
+    environment:
+      - IRONGOLEM_MODE=solo
+      - IRONGOLEM_DB_PATH=/data/irongolem.db
+      - IRONGOLEM_LOG_LEVEL=info
+    volumes:
+      - irongolem-data:/data
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["scheduler"]
+    ports:
+      - "8081:8081"
+    environment:
+      - IRONGOLEM_MODE=solo
+      - IRONGOLEM_LOG_LEVEL=info
+
+  health:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["health"]
+    ports:
+      - "8082:8082"
+    environment:
+      - IRONGOLEM_LOG_LEVEL=info
+
+  defense:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.services
+    command: ["defense"]
+    ports:
+      - "8083:8083"
+    environment:
+      - IRONGOLEM_LOG_LEVEL=info
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+
+volumes:
+  irongolem-data:

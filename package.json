@@ -1,0 +1,18 @@
+{
+  "name": "irongolem-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IronGolem OS — self-hosted autonomous assistant platform",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel run dev",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "clean": "pnpm -r run clean"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

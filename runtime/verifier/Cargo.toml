@@ -1,0 +1,16 @@
+[package]
+name = "irongolem-verifier"
+description = "Output quality gates for IronGolem OS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+irongolem-core = { path = "../core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
