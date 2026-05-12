@@ -19,6 +19,9 @@ import (
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/connector"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/handler"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/middleware"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/persist"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/planner"
+	gwruntime "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/policy"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 )
@@ -30,13 +33,78 @@ func main() {
 	slog.SetDefault(logger)
 
 	connMgr := connector.NewManager(logger)
-	h := handler.New(logger, connMgr)
 
-	// Shared stores for the recipe, approval, timeline, and squad subsystems.
-	eventStore := handler.NewInMemoryEventStore()
-	recipeStore := handler.NewInMemoryRecipeStore()
-	approvalStore := handler.NewInMemoryApprovalStore()
-	squadStore := handler.NewInMemorySquadStore()
+	// Spawn the runtimed child. Boot fails closed if the binary is missing
+	// or the initial spawn errors — the gateway has no value without it.
+	// Set IRONGOLEM_RUNTIMED_PATH to point at the runtimed binary (defaults
+	// to ./runtimed alongside the gateway).
+	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
+	runtimeClient, err := gwruntime.New(runtimeCtx, gwruntime.Config{
+		BinaryPath: envOrDefault("IRONGOLEM_RUNTIMED_PATH", "./runtimed"),
+	}, logger)
+	if err != nil {
+		logger.Error("runtime client init failed", slog.String("error", err.Error()))
+		runtimeCancel()
+		os.Exit(1)
+	}
+
+	// Open the persistent SQLite database and run migrations. Boot fails
+	// closed if the file is unwritable — silent fallback to in-memory
+	// would mean restarts silently lose state, which is exactly what
+	// Step 6 was meant to fix.
+	dbPath := envOrDefault("IRONGOLEM_GATEWAY_DB", persist.DefaultDBPath)
+	db, err := persist.Open(dbPath)
+	if err != nil {
+		logger.Error("gateway db open failed",
+			slog.String("path", dbPath),
+			slog.String("error", err.Error()),
+		)
+		runtimeCancel()
+		os.Exit(1)
+	}
+	logger.Info("gateway db ready", slog.String("path", dbPath))
+
+	// Shared SQLite-backed stores. Recipe and squad stores seed built-ins
+	// on first run; event and approval stores stay empty until traffic
+	// arrives.
+	eventStore := handler.NewSQLiteEventStore(db, logger)
+	recipeStore, err := handler.NewSQLiteRecipeStore(db, logger)
+	if err != nil {
+		logger.Error("recipe store init failed", slog.String("error", err.Error()))
+		runtimeCancel()
+		os.Exit(1)
+	}
+	approvalStore := handler.NewSQLiteApprovalStore(db, logger)
+	squadStore, err := handler.NewSQLiteSquadStore(db, logger)
+	if err != nil {
+		logger.Error("squad store init failed", slog.String("error", err.Error()))
+		runtimeCancel()
+		os.Exit(1)
+	}
+
+	// Wire the runtime client + event store into the inbound handler so
+	// MessageInbound synthesizes a plan, executes it via runtimed, and
+	// returns the LLM reply.
+	h := handler.NewWithOptions(logger, connMgr, handler.Options{
+		Runtime:    runtimeClient,
+		EventStore: eventStore,
+	})
+
+	// The connector pump shares the same inbound path as HTTP /messages/inbound.
+	connMgr.SetInboundHandler(func(ctx context.Context, msg connector.InboundMessage) (string, error) {
+		res, err := h.HandleInbound(ctx, planner.InboundMessage{
+			ConnectorID: msg.ConnectorID,
+			ChannelID:   msg.ChannelID,
+			UserID:      msg.UserID,
+			Content:     msg.Content,
+			TenantID:    msg.TenantID,
+			WorkspaceID: msg.WorkspaceID,
+		})
+		if err != nil {
+			return "", err
+		}
+		return res.Reply, nil
+	})
 
 	recipeHandler := handler.NewRecipeHandler(logger, recipeStore, eventStore)
 	approvalHandler := handler.NewApprovalHandler(logger, approvalStore, eventStore)
@@ -128,6 +196,21 @@ func main() {
 	}
 
 	connMgr.DisconnectAll()
+
+	// Tell runtimed to drain in-flight work, then signal the supervisor
+	// to stop trying to keep it alive. Bounded so a hung child can't
+	// stall our shutdown.
+	runtimeCloseCtx, runtimeCloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := runtimeClient.Close(runtimeCloseCtx); err != nil {
+		logger.Warn("runtime shutdown error", slog.String("error", err.Error()))
+	}
+	runtimeCloseCancel()
+	runtimeCancel()
+
+	if err := db.Close(); err != nil {
+		logger.Warn("gateway db close error", slog.String("error", err.Error()))
+	}
+
 	logger.Info("gateway stopped")
 }
 

@@ -5,6 +5,8 @@
 
 pub mod capability;
 pub mod host;
+pub mod registry;
 
 pub use capability::{Capability, SandboxConfig};
-pub use host::SandboxHost;
+pub use host::{LocalSandboxHost, SandboxHost};
+pub use registry::{EchoTool, HttpGetTool, Tool, ToolRegistry};

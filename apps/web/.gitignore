@@ -1,0 +1,9 @@
+# Vite build artefacts (also covered by root .gitignore; explicit for clarity)
+dist/
+.vite/
+*.local
+
+# Claude Design integration workspace
+# Keep _design-inbox/ tracked for provenance, but allow per-route .scratch/
+# directories for in-progress audits that should not be committed.
+src/_design-inbox/**/.scratch/

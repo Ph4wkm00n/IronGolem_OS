@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { Suspense, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 
 import { Home } from "./pages/Home";
@@ -9,6 +9,43 @@ import { Memory } from "./pages/Memory";
 import { Health } from "./pages/Health";
 import { Security } from "./pages/Security";
 import { Settings } from "./pages/Settings";
+import { Link } from "react-router-dom";
+import { ENABLE_V2_UI, V2_ROUTE_REGISTRY } from "./pages/v2/registry";
+
+/* ------------------------------------------------------------------ */
+/*  Claude Design v2 route family                                      */
+/*  ------------------------------------------------------------------ */
+/*  When VITE_ENABLE_V2_UI=true, App() routes purely through the v2    */
+/*  registry — v2 pages own their own chrome (topbars, sidebars), so   */
+/*  the legacy sidebar+header shell is skipped entirely.               */
+/*                                                                     */
+/*  Routes without a v2 entry hit a friendly placeholder rather than   */
+/*  rendering a legacy page inside no shell. See                       */
+/*  `docs/design/claude-design-handoff.md`.                            */
+/* ------------------------------------------------------------------ */
+
+function V2NotYetRoute() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-neutral-50 p-6">
+      <div className="max-w-md text-center">
+        <h1 className="text-xl font-semibold tracking-tight text-neutral-900">
+          This page hasn't been redesigned yet
+        </h1>
+        <p className="mt-2 text-sm text-neutral-500">
+          The v2 UI is opted in via <code className="font-mono">VITE_ENABLE_V2_UI</code>.
+          Only routes registered in <code className="font-mono">pages/v2/registry.ts</code> render
+          here. Set the flag to <code className="font-mono">false</code> to see the legacy page.
+        </p>
+        <Link
+          to="/"
+          className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:text-accent-solid"
+        >
+          Back to the workspace dashboard
+        </Link>
+      </div>
+    </main>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Navigation items matching the information architecture              */
@@ -164,7 +201,37 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 /*  App shell                                                          */
 /* ------------------------------------------------------------------ */
 
+function RouteFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+      <div className="inline-flex items-center gap-2 rounded-full bg-white border border-neutral-200 px-3 py-1.5 shadow-sm">
+        <span className="h-1.5 w-1.5 rounded-full bg-safe-solid ig-pulse" />
+        <span className="text-[12px] font-medium text-neutral-600">Loading…</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  if (ENABLE_V2_UI) {
+    return (
+      <BrowserRouter>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            {Object.entries(V2_ROUTE_REGISTRY).map(([path, Component]) => (
+              <Route key={path} path={path} element={<Component />} />
+            ))}
+            <Route path="*" element={<V2NotYetRoute />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    );
+  }
+
+  return <LegacyShell />;
+}
+
+function LegacyShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (

@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -108,15 +111,172 @@ func (s *InMemoryRecipeStore) Deactivate(id string) (models.DetailedRecipe, erro
 	return r, nil
 }
 
+// SQLiteRecipeStore persists recipes in the gateway's shared SQLite DB.
+// On first open (empty table) it seeds the built-in recipe templates so
+// the gallery is non-empty for new deployments — same UX as the in-memory
+// store, but durable across restarts.
+type SQLiteRecipeStore struct {
+	db     *sql.DB
+	logger *slog.Logger
+}
+
+// NewSQLiteRecipeStore returns a recipe store backed by db. Seeds built-ins
+// inside a single transaction the first time the table is empty.
+func NewSQLiteRecipeStore(db *sql.DB, logger *slog.Logger) (*SQLiteRecipeStore, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	s := &SQLiteRecipeStore{db: db, logger: logger.With(slog.String("component", "recipe_store"))}
+	if err := s.seedIfEmpty(); err != nil {
+		return nil, fmt.Errorf("recipe store seed: %w", err)
+	}
+	return s, nil
+}
+
+func (s *SQLiteRecipeStore) seedIfEmpty() error {
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM gateway_recipes").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	builtins := []models.DetailedRecipe{
+		models.EmailTriageRecipe(),
+		models.CalendarManagerRecipe(),
+		models.ResearchMonitorRecipe(),
+		models.FilesystemOrganizerRecipe(),
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i, r := range builtins {
+		body, err := json.Marshal(r)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		active := 0
+		if r.IsActive {
+			active = 1
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO gateway_recipes (id, is_active, created_at, updated_at, body, seq) VALUES (?, ?, ?, ?, ?, ?)`,
+			r.ID, active, now, now, string(body), i,
+		); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// List returns a page of recipes ordered by insertion sequence.
+func (s *SQLiteRecipeStore) List(page, pageSize int) ([]models.DetailedRecipe, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM gateway_recipes").Scan(&total); err != nil {
+		s.logger.Warn("recipe count failed", slog.String("error", err.Error()))
+		return nil, 0
+	}
+
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query(
+		"SELECT body FROM gateway_recipes ORDER BY seq ASC LIMIT ? OFFSET ?",
+		pageSize, offset,
+	)
+	if err != nil {
+		s.logger.Warn("recipe list failed", slog.String("error", err.Error()))
+		return nil, total
+	}
+	defer rows.Close()
+
+	var out []models.DetailedRecipe
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			s.logger.Warn("recipe scan failed", slog.String("error", err.Error()))
+			continue
+		}
+		var r models.DetailedRecipe
+		if err := json.Unmarshal([]byte(body), &r); err != nil {
+			s.logger.Warn("recipe unmarshal failed", slog.String("error", err.Error()))
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, total
+}
+
+// GetByID returns a single recipe by id.
+func (s *SQLiteRecipeStore) GetByID(id string) (models.DetailedRecipe, bool) {
+	var body string
+	if err := s.db.QueryRow("SELECT body FROM gateway_recipes WHERE id = ?", id).Scan(&body); err != nil {
+		return models.DetailedRecipe{}, false
+	}
+	var r models.DetailedRecipe
+	if err := json.Unmarshal([]byte(body), &r); err != nil {
+		return models.DetailedRecipe{}, false
+	}
+	return r, true
+}
+
+// Activate flips is_active=1 and refreshes the recipe's UpdatedAt.
+func (s *SQLiteRecipeStore) Activate(id string) (models.DetailedRecipe, error) {
+	return s.setActive(id, true)
+}
+
+// Deactivate flips is_active=0.
+func (s *SQLiteRecipeStore) Deactivate(id string) (models.DetailedRecipe, error) {
+	return s.setActive(id, false)
+}
+
+func (s *SQLiteRecipeStore) setActive(id string, active bool) (models.DetailedRecipe, error) {
+	r, ok := s.GetByID(id)
+	if !ok {
+		return models.DetailedRecipe{}, errNotFound
+	}
+	r.IsActive = active
+	r.UpdatedAt = time.Now().UTC()
+	body, err := json.Marshal(r)
+	if err != nil {
+		return models.DetailedRecipe{}, fmt.Errorf("recipe marshal: %w", err)
+	}
+	flag := 0
+	if active {
+		flag = 1
+	}
+	res, err := s.db.Exec(
+		"UPDATE gateway_recipes SET is_active = ?, updated_at = ?, body = ? WHERE id = ?",
+		flag, r.UpdatedAt.UTC().Format(time.RFC3339Nano), string(body), id,
+	)
+	if err != nil {
+		return models.DetailedRecipe{}, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return models.DetailedRecipe{}, errors.New("recipe not updated")
+	}
+	return r, nil
+}
+
 // RecipeHandler holds the dependencies for recipe HTTP handlers.
 type RecipeHandler struct {
 	logger     *slog.Logger
 	store      RecipeStore
-	eventStore *InMemoryEventStore
+	eventStore EventStore
 }
 
 // NewRecipeHandler creates a RecipeHandler with the given store and event store.
-func NewRecipeHandler(logger *slog.Logger, store RecipeStore, eventStore *InMemoryEventStore) *RecipeHandler {
+func NewRecipeHandler(logger *slog.Logger, store RecipeStore, eventStore EventStore) *RecipeHandler {
 	return &RecipeHandler{
 		logger:     logger,
 		store:      store,
