@@ -386,8 +386,29 @@ func (c *Client) deliverEvent(evt ipc.EventNotification) {
 	}
 }
 
-// deliverTerminal closes out a pending call by request_id.
+// nilUUID is the canonical "no request id" marker runtimed uses when it
+// can't even parse the incoming envelope. We detect it explicitly so we
+// can fail in-flight callers instead of letting them time out.
+const nilUUID = "00000000-0000-0000-0000-000000000000"
+
+// deliverTerminal closes out a pending call by request_id. A response
+// carrying the nil request_id is treated as an envelope-level parse
+// failure from runtimed (it had nothing else to put in the field) and
+// fails ALL in-flight requests so callers see a useful error rather
+// than a timeout.
 func (c *Client) deliverTerminal(reqID string, t terminalResponse) {
+	if reqID == nilUUID {
+		err := fmt.Errorf("runtime: child rejected request envelope")
+		if t.execute != nil && t.execute.Error != "" {
+			err = fmt.Errorf("runtime: %s", t.execute.Error)
+		}
+		c.logger.Warn("runtime returned nil-uuid error; failing all in-flight requests",
+			slog.String("reason", err.Error()),
+		)
+		c.failAllPending(err)
+		return
+	}
+
 	c.pendingMu.Lock()
 	pr, ok := c.pending[reqID]
 	if ok {

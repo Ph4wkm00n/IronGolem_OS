@@ -35,6 +35,11 @@ type RuntimeExecutor interface {
 // short so misbehaving providers don't pile up gateway goroutines.
 const DefaultInboundTimeout = 30 * time.Second
 
+// defaultWorkspaceID is the placeholder UUID used when an inbound message
+// arrives without an explicit workspace. The Rust runtime parses this field
+// strictly as a UUID, so we use the nil UUID rather than the empty string.
+const defaultWorkspaceID = "00000000-0000-0000-0000-000000000000"
+
 // Handler holds the dependencies for the gateway HTTP handlers.
 type Handler struct {
 	logger     *slog.Logger
@@ -214,6 +219,17 @@ type InboundResult struct {
 func (h *Handler) HandleInbound(ctx context.Context, msg planner.InboundMessage) (*InboundResult, error) {
 	if h.runtime == nil {
 		return nil, errors.New("runtime client not configured")
+	}
+
+	// Stamp a default workspace id when the inbound message doesn't carry
+	// one. The Rust side parses workspace_id as a UUID strictly — empty
+	// string trips a deserialize failure that surfaces as a generic
+	// "parse error" with a nil request_id (and a hung caller). In solo
+	// mode there is exactly one workspace, so the all-zero nil UUID is
+	// the canonical placeholder. Team mode plumbs a real workspace via
+	// the HMAC token claims in a future iteration.
+	if msg.WorkspaceID == "" {
+		msg.WorkspaceID = defaultWorkspaceID
 	}
 
 	inboundEventID := h.recordInbound(msg)

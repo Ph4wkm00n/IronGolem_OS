@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean dev test-visual check-real-api
+.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e
 
 # --- Top-level targets ---
 
@@ -98,3 +98,9 @@ test-visual:
 # already real-backed. Expects the gateway on $$GATEWAY_URL (default :8080).
 check-real-api:
 	bash scripts/check-real-api.sh
+
+# Step 8 Gate 3 of the v0.1 plan: end-to-end smoke. Boots the gateway against
+# the mock-provider runtimed binary, mints a token, posts an inbound message,
+# asserts the reply and the audit trail.
+smoke-e2e:
+	bash scripts/smoke-e2e.sh
