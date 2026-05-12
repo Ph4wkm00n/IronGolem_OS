@@ -150,14 +150,32 @@ func main() {
 	mux.HandleFunc("GET /api/v1/events", timelineHandler.ListEvents)
 	mux.HandleFunc("GET /api/v1/events/{id}", timelineHandler.GetEvent)
 
+	// HMAC token authentication. The secret comes from IRONGOLEM_HMAC_SECRET
+	// and is required at boot — fail-closed per Step 7 of the v0.1 plan
+	// (Plans/create-a-plan-to-glowing-nest.md). Silent fallback to header
+	// trust is exactly what Step 7 removed; we won't reintroduce it under a
+	// "dev mode" loophole. Mint dev tokens locally via the helper in
+	// services/gateway/internal/middleware/auth.go (MintToken).
+	hmacSecret := []byte(os.Getenv("IRONGOLEM_HMAC_SECRET"))
+	if len(hmacSecret) == 0 {
+		logger.Error("IRONGOLEM_HMAC_SECRET is required; refusing to start without it")
+		runtimeCancel()
+		os.Exit(1)
+	}
+
 	// Build middleware chain (outermost first):
-	// security headers -> rate limit -> request size -> CORS -> logging -> tenant -> policy -> handler.
+	// security headers -> rate limit -> request size -> CORS -> logging
+	//   -> auth (HMAC) -> tenant -> policy -> handler.
 	deployMode := middleware.DeploymentMode(envOrDefault("DEPLOYMENT_MODE", "solo"))
 	policyEngine := policy.NewDefaultPolicyEngine(logger)
 
 	var finalHandler http.Handler = mux
 	finalHandler = middleware.PolicyMiddleware(policyEngine, logger, eventStore)(finalHandler)
 	finalHandler = middleware.TenantMiddleware(logger, deployMode)(finalHandler)
+	finalHandler = middleware.HMACAuthMiddleware(middleware.AuthConfig{
+		Secret:      hmacSecret,
+		ExemptPaths: []string{"/healthz"},
+	}, logger)(finalHandler)
 	finalHandler = middleware.LoggingMiddleware(logger)(finalHandler)
 	finalHandler = middleware.CORSMiddleware(middleware.DefaultCORSConfig())(finalHandler)
 	finalHandler = middleware.RequestSizeMiddleware(1 << 20)(finalHandler) // 1 MB

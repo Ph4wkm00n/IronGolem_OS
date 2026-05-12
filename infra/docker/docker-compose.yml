@@ -1,5 +1,12 @@
 version: "3.9"
 
+# v0.1 deployment: gateway + web only.
+#
+# Scheduler, health, defense, tenancy, research, optimizer, and fleet have
+# been parked under `services/_deferred/` per Step 7 of the v0.1 plan
+# (Plans/create-a-plan-to-glowing-nest.md). They will rejoin this file in
+# v0.2 once their behavior is wired into the gateway runtime client.
+
 services:
   gateway:
     build:
@@ -13,80 +20,12 @@ services:
       - IRONGOLEM_DB_PATH=/data/irongolem.db
       - IRONGOLEM_LOG_LEVEL=info
       - DEPLOYMENT_MODE=solo
+      # HMAC bearer-token secret (Step 7). The compose-default value here is
+      # a placeholder for local dev only; production deployments MUST inject
+      # a high-entropy value through their secret manager.
+      - IRONGOLEM_HMAC_SECRET=${IRONGOLEM_HMAC_SECRET:-dev-secret-do-not-use-in-prod}
     volumes:
       - irongolem-data:/data
-
-  scheduler:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-scheduler"]
-    ports:
-      - "8081:8081"
-    environment:
-      - IRONGOLEM_MODE=solo
-      - IRONGOLEM_LOG_LEVEL=info
-
-  health:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-health"]
-    ports:
-      - "8082:8082"
-    environment:
-      - IRONGOLEM_LOG_LEVEL=info
-
-  defense:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-defense"]
-    ports:
-      - "8083:8083"
-    environment:
-      - IRONGOLEM_LOG_LEVEL=info
-
-  research:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-research"]
-    ports:
-      - "8085:8085"
-    environment:
-      - IRONGOLEM_LOG_LEVEL=info
-
-  optimizer:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-optimizer"]
-    ports:
-      - "8086:8086"
-    environment:
-      - IRONGOLEM_LOG_LEVEL=info
-
-  tenancy:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-tenancy"]
-    ports:
-      - "8084:8084"
-    environment:
-      - IRONGOLEM_MODE=solo
-      - IRONGOLEM_LOG_LEVEL=info
-
-  fleet:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.services
-    command: ["irongolem-fleet"]
-    ports:
-      - "8087:8087"
-    environment:
-      - IRONGOLEM_LOG_LEVEL=info
 
   web:
     build:

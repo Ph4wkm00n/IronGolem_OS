@@ -21,17 +21,15 @@ const (
 // ConnectorType identifies the kind of connector.
 type ConnectorType string
 
+// v0.1 ships with email, calendar (stub), telegram, and webhook only.
+// Slack, Discord, WhatsApp, Filesystem, Browser, and Feishu stubs were
+// removed in Step 7 (Plans/create-a-plan-to-glowing-nest.md). They will
+// return in v0.2 backed by real client logic.
 const (
-	TypeEmail      ConnectorType = "email"
-	TypeCalendar   ConnectorType = "calendar"
-	TypeTelegram   ConnectorType = "telegram"
-	TypeSlack      ConnectorType = "slack"
-	TypeDiscord    ConnectorType = "discord"
-	TypeWhatsApp   ConnectorType = "whatsapp"
-	TypeFilesystem ConnectorType = "filesystem"
-	TypeBrowser    ConnectorType = "browser"
-	TypeWebhook    ConnectorType = "webhook"
-	TypeFeishu     ConnectorType = "feishu"
+	TypeEmail    ConnectorType = "email"
+	TypeCalendar ConnectorType = "calendar"
+	TypeTelegram ConnectorType = "telegram"
+	TypeWebhook  ConnectorType = "webhook"
 )
 
 // Message represents a normalized message from any connector.

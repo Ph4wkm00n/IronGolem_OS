@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 )
 
@@ -249,14 +250,31 @@ type perChannelRestrictionChecker struct{}
 
 func (c *perChannelRestrictionChecker) Layer() PolicyLayer { return LayerPerChannelRestrict }
 
+// Check implements Layer 4 per the v0.1 plan Step 7. The persistent store
+// for per-channel policies is not implemented yet; instead of silently
+// allowing (the prior behavior, which is a security smell), the layer is
+// fenced behind IRONGOLEM_LAYER4_ENABLED:
+//
+//   - default / unset:  explicit allow with reason "layer4 disabled in v0.1"
+//     so operators see clearly that the layer is intentionally off.
+//   - "true":           deny with reason "layer4 store not implemented",
+//     forcing a hard failure rather than a silent bypass once the layer
+//     is supposed to be enforcing.
+//
+// The store-backed implementation lands in v0.2 alongside the channel
+// policy data model.
 func (c *perChannelRestrictionChecker) Check(_ context.Context, req EvalRequest) (Decision, string, error) {
-	// In production, this loads channel-specific policies from the data store.
-	// For now, allow all actions on channels that are specified.
-	if req.ChannelID == "" {
-		// No channel context means this is an internal operation; allow.
-		return DecisionAllow, "", nil
+	if isLayer4Enabled() {
+		return DecisionDeny, "layer4 store not implemented", nil
 	}
-	return DecisionAllow, "", nil
+	if req.ChannelID == "" {
+		return DecisionAllow, "layer4 disabled in v0.1 (no channel context)", nil
+	}
+	return DecisionAllow, "layer4 disabled in v0.1", nil
+}
+
+func isLayer4Enabled() bool {
+	return os.Getenv("IRONGOLEM_LAYER4_ENABLED") == "true"
 }
 
 // --- Layer 5: Admin-Only Controls ---
