@@ -191,3 +191,50 @@ func TestEmergencyStop(t *testing.T) {
 		t.Errorf("expected emergency stop reason, got %q", result.Reason)
 	}
 }
+
+// TestLayer4DisabledByDefault proves Step 7's fix: layer-4 never silently
+// allows. With the env unset it explicitly returns the "disabled" reason
+// so the operator sees the gap; with the env set to "true" it returns a
+// deny rather than a stub-allow.
+func TestLayer4DisabledByDefault(t *testing.T) {
+	t.Setenv("IRONGOLEM_LAYER4_ENABLED", "")
+	checker := &perChannelRestrictionChecker{}
+
+	// With a channel context.
+	dec, reason, err := checker.Check(context.Background(), EvalRequest{
+		ChannelID: "channel-email",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dec != DecisionAllow {
+		t.Fatalf("expected allow with disabled reason, got %q (%s)", dec, reason)
+	}
+	if reason != "layer4 disabled in v0.1" {
+		t.Fatalf("expected disabled reason, got %q", reason)
+	}
+
+	// Without a channel context the explanation should reflect that.
+	_, reason, _ = checker.Check(context.Background(), EvalRequest{})
+	if reason != "layer4 disabled in v0.1 (no channel context)" {
+		t.Fatalf("expected no-channel disabled reason, got %q", reason)
+	}
+}
+
+func TestLayer4EnabledDeniesUntilImplemented(t *testing.T) {
+	t.Setenv("IRONGOLEM_LAYER4_ENABLED", "true")
+	checker := &perChannelRestrictionChecker{}
+
+	dec, reason, err := checker.Check(context.Background(), EvalRequest{
+		ChannelID: "channel-email",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dec != DecisionDeny {
+		t.Fatalf("expected deny when layer4 enabled, got %q", dec)
+	}
+	if reason != "layer4 store not implemented" {
+		t.Fatalf("expected not-implemented reason, got %q", reason)
+	}
+}

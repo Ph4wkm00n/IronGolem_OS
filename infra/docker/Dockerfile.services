@@ -1,4 +1,7 @@
-# Multi-stage build for all Go services
+# Gateway-only image for v0.1.
+# Step 7 of the v0.1 plan parked the other six services under
+# services/_deferred/; they will be reintroduced in v0.2 once their behavior
+# is wired into the gateway's runtime client.
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
@@ -7,20 +10,11 @@ RUN go mod download || true
 
 COPY services/ .
 
-# Build all 8 services as static binaries
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-gateway ./gateway/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-scheduler ./scheduler/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-health ./health/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-defense ./defense/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-research ./research/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-optimizer ./optimizer/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-tenancy ./tenancy/cmd
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-fleet ./fleet/cmd
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /bin/irongolem-* /usr/local/bin/
 
-# Default to gateway; override with docker compose command
 EXPOSE 8080
 CMD ["irongolem-gateway"]

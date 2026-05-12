@@ -116,10 +116,14 @@ func PolicyMiddleware(engine policy.PolicyEngine, logger *slog.Logger, emitter E
 				return
 			}
 
+			// Identity flows from the HMAC token claims installed by
+			// HMACAuthMiddleware — never trust X-* headers. The tenant
+			// is read from its own context key because TenantMiddleware
+			// applies a default-tenant fallback in solo mode.
 			tenantID := TenantIDFromContext(r.Context())
-			userID := r.Header.Get("X-User-ID")
-			agentRole := r.Header.Get("X-Agent-Role")
-			channelID := r.Header.Get("X-Channel-ID")
+			userID := UserIDFromContext(r.Context())
+			agentRole := AgentRoleFromContext(r.Context())
+			channelID := ChannelIDFromContext(r.Context())
 
 			// Resolve the permission for this route.
 			routeKey := normalizeRoute(r.Method, r.URL.Path)
