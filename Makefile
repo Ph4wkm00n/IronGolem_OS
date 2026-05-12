@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean dev
+.PHONY: all build test lint clean dev test-visual check-real-api
 
 # --- Top-level targets ---
 
@@ -86,3 +86,15 @@ build-connectors:
 
 test-connectors:
 	cd connectors && go test ./... -v
+
+# --- Frontend visual regression + API smoke checks ---
+
+# Pixel-diff every integrated v2 route against tests/visual/<route>.baseline.png.
+# THRESHOLD=0.05 (default), tighten per-route as design stabilizes.
+test-visual:
+	bash scripts/visual-check.sh
+
+# Ping each /api/v1/v2/<route> against a running gateway and report which are
+# already real-backed. Expects the gateway on $$GATEWAY_URL (default :8080).
+check-real-api:
+	bash scripts/check-real-api.sh

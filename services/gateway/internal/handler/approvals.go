@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,15 +120,160 @@ func (s *InMemoryApprovalStore) Deny(id, respondedBy, reason string) (models.App
 	return a, true
 }
 
+// SQLiteApprovalStore persists approval requests in the gateway's shared
+// SQLite database. Body is stored as JSON; status is replicated to its
+// own column for index-friendly filtering.
+type SQLiteApprovalStore struct {
+	db     *sql.DB
+	logger *slog.Logger
+}
+
+// NewSQLiteApprovalStore wraps the shared *sql.DB. No seeding — approvals
+// only exist after Create is called.
+func NewSQLiteApprovalStore(db *sql.DB, logger *slog.Logger) *SQLiteApprovalStore {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &SQLiteApprovalStore{db: db, logger: logger.With(slog.String("component", "approval_store"))}
+}
+
+// List returns a page of approvals newest-first, optionally filtered by status.
+func (s *SQLiteApprovalStore) List(page, pageSize int, statusFilter string) ([]models.ApprovalRequest, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+
+	var (
+		clauses []string
+		args    []any
+	)
+	if statusFilter != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, statusFilter)
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM gateway_approvals"+where, args...).Scan(&total); err != nil {
+		s.logger.Warn("approval count failed", slog.String("error", err.Error()))
+		return nil, 0
+	}
+
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query(
+		"SELECT body FROM gateway_approvals"+where+" ORDER BY seq DESC LIMIT ? OFFSET ?",
+		append(append([]any{}, args...), pageSize, offset)...,
+	)
+	if err != nil {
+		s.logger.Warn("approval list failed", slog.String("error", err.Error()))
+		return nil, total
+	}
+	defer rows.Close()
+
+	var out []models.ApprovalRequest
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			continue
+		}
+		var a models.ApprovalRequest
+		if err := json.Unmarshal([]byte(body), &a); err != nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, total
+}
+
+// Get returns an approval by id.
+func (s *SQLiteApprovalStore) Get(id string) (models.ApprovalRequest, bool) {
+	var body string
+	if err := s.db.QueryRow("SELECT body FROM gateway_approvals WHERE id = ?", id).Scan(&body); err != nil {
+		return models.ApprovalRequest{}, false
+	}
+	var a models.ApprovalRequest
+	if err := json.Unmarshal([]byte(body), &a); err != nil {
+		return models.ApprovalRequest{}, false
+	}
+	return a, true
+}
+
+// Create inserts a new approval request. The caller is expected to set
+// the ID and RequestedAt fields before calling.
+func (s *SQLiteApprovalStore) Create(req models.ApprovalRequest) models.ApprovalRequest {
+	body, err := json.Marshal(req)
+	if err != nil {
+		s.logger.Warn("approval marshal failed", slog.String("error", err.Error()))
+		return req
+	}
+	// seq monotonically increases via the row count; the index on
+	// (status, seq) keeps listing performant.
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.db.Exec(
+		`INSERT OR REPLACE INTO gateway_approvals (id, status, body, created_at, updated_at, seq)
+		 VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM gateway_approvals))`,
+		req.ID, string(req.Status), string(body), now, now,
+	); err != nil {
+		s.logger.Warn("approval insert failed", slog.String("error", err.Error()))
+	}
+	return req
+}
+
+// Approve transitions a pending request to approved.
+func (s *SQLiteApprovalStore) Approve(id, respondedBy string) (models.ApprovalRequest, bool) {
+	return s.transition(id, models.ApprovalStatusApproved, respondedBy, "")
+}
+
+// Deny transitions a pending request to denied with a reason.
+func (s *SQLiteApprovalStore) Deny(id, respondedBy, reason string) (models.ApprovalRequest, bool) {
+	return s.transition(id, models.ApprovalStatusDenied, respondedBy, reason)
+}
+
+func (s *SQLiteApprovalStore) transition(id string, target models.ApprovalStatus, respondedBy, reason string) (models.ApprovalRequest, bool) {
+	a, ok := s.Get(id)
+	if !ok {
+		return models.ApprovalRequest{}, false
+	}
+	if a.Status != models.ApprovalStatusPending {
+		return a, false
+	}
+	now := time.Now().UTC()
+	a.Status = target
+	a.RespondedAt = &now
+	a.RespondedBy = respondedBy
+	if target == models.ApprovalStatusDenied {
+		a.Reason = reason
+	}
+	body, err := json.Marshal(a)
+	if err != nil {
+		s.logger.Warn("approval marshal failed", slog.String("error", err.Error()))
+		return a, false
+	}
+	if _, err := s.db.Exec(
+		"UPDATE gateway_approvals SET status = ?, body = ?, updated_at = ? WHERE id = ?",
+		string(target), string(body), now.UTC().Format(time.RFC3339Nano), id,
+	); err != nil {
+		s.logger.Warn("approval update failed", slog.String("error", err.Error()))
+		return a, false
+	}
+	return a, true
+}
+
 // ApprovalHandler holds dependencies for approval HTTP handlers.
 type ApprovalHandler struct {
 	logger     *slog.Logger
 	store      ApprovalStore
-	eventStore *InMemoryEventStore
+	eventStore EventStore
 }
 
 // NewApprovalHandler creates an ApprovalHandler with the given dependencies.
-func NewApprovalHandler(logger *slog.Logger, store ApprovalStore, eventStore *InMemoryEventStore) *ApprovalHandler {
+func NewApprovalHandler(logger *slog.Logger, store ApprovalStore, eventStore EventStore) *ApprovalHandler {
 	return &ApprovalHandler{
 		logger:     logger,
 		store:      store,

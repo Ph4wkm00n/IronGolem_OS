@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* CSS variables mirror @irongolem/design-tokens. Regenerate with:
+   bun run scripts/dump-tokens-css.ts > apps/web/src/styles/tokens.generated.css */
+
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
 
 @layer base {
   :root {
@@ -44,7 +46,7 @@
     --color-quarantined-solid: #a855f7;
     --color-quarantined-solid-hover: #9333ea;
 
-    /* Semantic colors — neutral */
+    /* Semantic colors — neutral (also wired in tailwind.config via the bridge) */
     --color-neutral-bg: #f9fafb;
     --color-neutral-bg-hover: #f3f4f6;
     --color-neutral-border: #d1d5db;
@@ -95,6 +97,79 @@
   }
 
   .card-padded {
-    @apply card p-4 sm:p-6;
+    @apply rounded-xl border border-neutral-200 bg-white shadow-sm p-4 sm:p-6;
   }
 }
+
+/*
+ * Semantic-palette variant overrides.
+ *
+ * The Tailwind bridge in @irongolem/design-tokens sets `colors.X.DEFAULT` to
+ * the bg-tint so `bg-safe`, `bg-warning`, etc. read naturally. Tailwind then
+ * inherits the same DEFAULT for `text-X` and `border-X`, which is wrong —
+ * `text-safe` should pick the readable text variant, `border-safe` should
+ * pick the border variant. These overrides remap the conflicting utility
+ * classes to their semantically correct CSS variables.
+ *
+ * The same pattern is mirrored in the Claude Design export's styles.css.
+ */
+@layer utilities {
+  .text-safe        { color: var(--color-safe-text); }
+  .text-warning     { color: var(--color-warning-text); }
+  .text-blocked     { color: var(--color-blocked-text); }
+  .text-recovered   { color: var(--color-recovered-text); }
+  .text-quarantined { color: var(--color-quarantined-text); }
+  .text-accent      { color: var(--color-accent-text); }
+
+  .text-safe-solid        { color: var(--color-safe-solid); }
+  .text-warning-solid     { color: var(--color-warning-solid); }
+  .text-blocked-solid     { color: var(--color-blocked-solid); }
+  .text-recovered-solid   { color: var(--color-recovered-solid); }
+  .text-quarantined-solid { color: var(--color-quarantined-solid); }
+  .text-accent-solid      { color: var(--color-accent-solid); }
+
+  .border-safe        { border-color: var(--color-safe-border); }
+  .border-warning     { border-color: var(--color-warning-border); }
+  .border-blocked     { border-color: var(--color-blocked-border); }
+  .border-recovered   { border-color: var(--color-recovered-border); }
+  .border-quarantined { border-color: var(--color-quarantined-border); }
+  .border-accent      { border-color: var(--color-accent-border); }
+
+  .hover\:bg-safe-hover:hover        { background-color: var(--color-safe-bg-hover); }
+  .hover\:bg-warning-hover:hover     { background-color: var(--color-warning-bg-hover); }
+  .hover\:bg-blocked-hover:hover     { background-color: var(--color-blocked-bg-hover); }
+  .hover\:bg-recovered-hover:hover   { background-color: var(--color-recovered-bg-hover); }
+  .hover\:bg-quarantined-hover:hover { background-color: var(--color-quarantined-bg-hover); }
+  .hover\:bg-accent-hover:hover      { background-color: var(--color-accent-bg-hover); }
+}
+
+@keyframes ig-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--color-safe-solid); opacity: 0.95; }
+  70%  { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); opacity: 1; }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); opacity: 0.95; }
+}
+.ig-pulse { animation: ig-pulse 2.2s ease-out infinite; }
+
+.ig-drawer-backdrop {
+  background: rgba(15, 17, 21, 0.20);
+  backdrop-filter: blur(2px);
+}
+
+@keyframes ig-slide-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.ig-slide-in { animation: ig-slide-in 220ms ease-out; }
+
+@keyframes ig-toast-in {
+  from { transform: translate(-50%, 8px); opacity: 0; }
+  to   { transform: translate(-50%, 0);   opacity: 1; }
+}
+.ig-toast-in { animation: ig-toast-in 200ms ease-out; }
+
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

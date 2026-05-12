@@ -274,6 +274,212 @@ export const events = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/*  v2 namespace — mock/real toggle for the redesigned UI              */
+/* ------------------------------------------------------------------ */
+
+import * as homeMock from "../_mocks/home";
+import * as inboxMock from "../_mocks/inbox";
+import * as recipesMock from "../_mocks/recipes";
+import * as researchMock from "../_mocks/research";
+import * as memoryMock from "../_mocks/memory";
+import * as healthMock from "../_mocks/health";
+import * as securityMock from "../_mocks/security";
+import * as settingsMock from "../_mocks/settings";
+
+export type {
+  EventItem,
+  EventStatus,
+  Team,
+  ResearchFinding,
+  HeartbeatState,
+  WorkspaceInfo,
+  SafetyShape as HomeSafetyShape,
+  SafetyLayer,
+} from "../_mocks/home";
+export type {
+  Item as InboxItem,
+  Source as InboxSource,
+  Risk as InboxRisk,
+  Status as InboxStatus,
+  Draft as InboxDraft,
+  EmailDraft,
+  CalendarDraft,
+  WebhookDraft,
+  TelegramDraft,
+  SafetyShape as InboxSafetyShape,
+  AuditStep,
+} from "../_mocks/inbox";
+export type {
+  Recipe,
+  Category as RecipeCategory,
+  RecipeStatus,
+  Risk as RecipeRisk,
+  PermScope,
+  Permission as RecipePermission,
+  SafetyShape as RecipeSafetyShape,
+  PolicyLayer as RecipePolicyLayer,
+  RunOutcome,
+  RunEvent,
+} from "../_mocks/recipes";
+export type {
+  Finding as ResearchFinding2,
+  Topic as ResearchTopic2,
+  Impact as ResearchImpact,
+  Action as ResearchAction,
+  SourceKind as ResearchSourceKind,
+  Agreement as ResearchAgreement,
+  SourceSnippet,
+  ClassifierTrace,
+} from "../_mocks/research";
+export type {
+  MemoryItem,
+  Subject as MemorySubject,
+  Evidence as MemoryEvidence,
+} from "../_mocks/memory";
+export type {
+  HealthComponent,
+  CanonicalState as HealthState,
+  ComponentCategory,
+  HealStory,
+  HealEvent,
+  PredictiveWarning,
+} from "../_mocks/health";
+export type {
+  Layer as SecurityLayer,
+  LayerId,
+  LayerState,
+  Scope as SecurityScope,
+  AuditEntry as SecurityAuditEntry,
+  AuditKind as SecurityAuditKind,
+  Policy as SecurityPolicy,
+  PolicyState,
+  PolicyHistoryEntry,
+} from "../_mocks/security";
+export type {
+  Connector,
+  ConnectorState,
+  ConnectorScope,
+  DeploymentMode,
+  ModeCard,
+  RecipeRequest,
+  RequestStatus,
+  Session as SettingsSession,
+  Operator as SettingsOperator,
+  Workspace as SettingsWorkspace,
+} from "../_mocks/settings";
+
+/**
+ * Decide mock vs real for one v2 route.
+ *
+ * Resolution order (first match wins):
+ *   1. `VITE_API_MODE_<route>=real|mock` — per-route override.
+ *   2. `VITE_API_MODE=real|mock` — workspace-wide override.
+ *   3. Default: mock.
+ *
+ * Per-route overrides exist because the v0.1 backend lands endpoint-by-endpoint
+ * (Inbox first, then Health, then Home). We don't want flipping Inbox to real
+ * to also flip Recipes/Research/Memory — those stay on mocks until v0.2.
+ */
+type V2Route = "home" | "inbox" | "recipes" | "research" | "memory" | "health" | "security" | "settings";
+
+function isRealForRoute(route: V2Route): boolean {
+  const env = import.meta.env as Record<string, string | undefined>;
+  const perRoute = env[`VITE_API_MODE_${route.toUpperCase()}`];
+  if (perRoute === "real") return true;
+  if (perRoute === "mock") return false;
+  return env.VITE_API_MODE === "real";
+}
+
+export const v2 = {
+  home: {
+    getMock: () => ({
+      workspace: homeMock.mockWorkspace,
+      heartbeat: homeMock.mockHeartbeat,
+      teams: homeMock.mockTeams,
+      trustHistory: homeMock.mockTrustHistory,
+      safety: homeMock.mockSafety,
+      researchFindings: homeMock.mockResearchFindings,
+      events: homeMock.mockInitialEvents,
+    }),
+    async load() {
+      if (!isRealForRoute("home")) return v2.home.getMock();
+      return get<ReturnType<typeof v2.home.getMock>>("/v2/home");
+    },
+  },
+  inbox: {
+    getMock: () => inboxMock.mockInboxItems,
+    async list() {
+      if (!isRealForRoute("inbox")) return v2.inbox.getMock();
+      return get<typeof inboxMock.mockInboxItems>("/v2/inbox");
+    },
+  },
+  recipes: {
+    getMock: () => ({
+      recipes: recipesMock.mockRecipes,
+      fiveLayers: recipesMock.mockFiveLayers,
+    }),
+    async list() {
+      if (!isRealForRoute("recipes")) return v2.recipes.getMock();
+      return get<ReturnType<typeof v2.recipes.getMock>>("/v2/recipes");
+    },
+  },
+  research: {
+    getMock: () => ({
+      findings: researchMock.mockFindings,
+      quietlyArchivedToday: researchMock.mockQuietlyArchivedToday,
+      sourcesMonitored: researchMock.mockSourcesMonitored,
+    }),
+    async load() {
+      if (!isRealForRoute("research")) return v2.research.getMock();
+      return get<ReturnType<typeof v2.research.getMock>>("/v2/research");
+    },
+  },
+  memory: {
+    getMock: () => memoryMock.mockMemory,
+    async list() {
+      if (!isRealForRoute("memory")) return v2.memory.getMock();
+      return get<typeof memoryMock.mockMemory>("/v2/memory");
+    },
+  },
+  health: {
+    getMock: () => ({
+      components: healthMock.mockComponents,
+      healEvents: healthMock.mockHealEvents,
+      predictive: healthMock.mockPredictive,
+    }),
+    async load() {
+      if (!isRealForRoute("health")) return v2.health.getMock();
+      return get<ReturnType<typeof v2.health.getMock>>("/v2/health");
+    },
+  },
+  security: {
+    getMock: () => ({
+      layers: securityMock.mockLayers,
+      policies: securityMock.mockPoliciesInitial,
+      audit: securityMock.mockAudit,
+    }),
+    async load() {
+      if (!isRealForRoute("security")) return v2.security.getMock();
+      return get<ReturnType<typeof v2.security.getMock>>("/v2/security");
+    },
+  },
+  settings: {
+    getMock: () => ({
+      operator: settingsMock.mockOperator,
+      workspace: settingsMock.mockWorkspace,
+      sessions: settingsMock.mockSessions,
+      connectors: settingsMock.mockConnectors,
+      modes: settingsMock.mockModes,
+      recipeRequests: settingsMock.mockRecipeRequests,
+    }),
+    async load() {
+      if (!isRealForRoute("settings")) return v2.settings.getMock();
+      return get<ReturnType<typeof v2.settings.getMock>>("/v2/settings");
+    },
+  },
+} as const;
+
 /** Aggregate API namespace. */
 export const api = {
   configure,
@@ -286,6 +492,7 @@ export const api = {
   memory,
   security,
   events,
+  v2,
 } as const;
 
 export default api;

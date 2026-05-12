@@ -9,7 +9,8 @@
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
-    "clean": "pnpm -r run clean"
+    "clean": "pnpm -r run clean",
+    "test:visual": "bash scripts/visual-check.sh"
   },
   "engines": {
     "node": ">=18.0.0",

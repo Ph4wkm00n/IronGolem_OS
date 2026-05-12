@@ -1,0 +1,360 @@
+/* IronGolem OS — Workspace Dashboard
+ * Semantic color tokens + utility classes.
+ * Pattern: bg-X / text-X / border-X default to the X-bg / X-text / X-border shade.
+ *   bg-safe       → light-green tint surface
+ *   text-safe     → readable green text on light surfaces
+ *   border-safe   → subtle green hairline
+ *   bg-safe-solid → strong green fill (use with text-white)
+ */
+
+@import url("https://rsms.me/inter/inter.css");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  /* Surfaces / chrome (light mode) */
+  --bg-app: #f7f8f9;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f1f3f5;
+  --bg-hover: #f3f5f7;
+  --border-chrome: rgba(15, 17, 21, 0.06);
+  --border-divider: rgba(15, 17, 21, 0.08);
+  --shadow-card: 0 1px 0 rgba(15,17,21,0.04), 0 1px 3px rgba(15,17,21,0.04);
+  --shadow-elevated: 0 4px 12px rgba(15,17,21,0.06), 0 1px 3px rgba(15,17,21,0.04);
+
+  /* Neutral text scale (mirrors the spec) */
+  --neutral-900: #0f1115;
+  --neutral-800: #1f232b;
+  --neutral-700: #353b46;
+  --neutral-600: #4b525e;
+  --neutral-500: #6b7280;
+  --neutral-400: #9aa2af;
+  --neutral-300: #c4cad3;
+  --neutral-200: #e2e5ea;
+  --neutral-100: #eef0f3;
+  --neutral-50:  #f7f8f9;
+
+  /* SAFE — success, healthy, approved (emerald) */
+  --safe-bg:           #ecfdf5;
+  --safe-bg-hover:     #d1fae5;
+  --safe-border:       #a7f3d0;
+  --safe-text:         #047857;
+  --safe-solid:        #10b981;
+  --safe-solid-hover:  #059669;
+
+  /* WARNING — needs attention (amber) */
+  --warning-bg:           #fffbeb;
+  --warning-bg-hover:     #fef3c7;
+  --warning-border:       #fde68a;
+  --warning-text:         #92400e;
+  --warning-solid:        #f59e0b;
+  --warning-solid-hover:  #d97706;
+
+  /* BLOCKED — denied, error (red) */
+  --blocked-bg:           #fef2f2;
+  --blocked-bg-hover:     #fee2e2;
+  --blocked-border:       #fecaca;
+  --blocked-text:         #b91c1c;
+  --blocked-solid:        #ef4444;
+  --blocked-solid-hover:  #dc2626;
+
+  /* RECOVERED — auto-healed (teal) */
+  --recovered-bg:           #ecfeff;
+  --recovered-bg-hover:     #cffafe;
+  --recovered-border:       #a5f3fc;
+  --recovered-text:         #0e7490;
+  --recovered-solid:        #06b6d4;
+  --recovered-solid-hover:  #0891b2;
+
+  /* QUARANTINED — isolated for review (violet) */
+  --quarantined-bg:           #faf5ff;
+  --quarantined-bg-hover:     #f3e8ff;
+  --quarantined-border:       #e9d5ff;
+  --quarantined-text:         #6d28d9;
+  --quarantined-solid:        #a855f7;
+  --quarantined-solid-hover:  #9333ea;
+
+  /* ACCENT — primary brand interaction (Linear indigo) */
+  --accent-bg:           #eef0ff;
+  --accent-bg-hover:     #e0e3ff;
+  --accent-border:       #c5cafe;
+  --accent-text:         #4047b8;
+  --accent-solid:        #5e6ad2;
+  --accent-solid-hover:  #4f5ab8;
+
+  /* NEUTRAL — default informational */
+  --neutral-bg:           #f1f3f5;
+  --neutral-bg-hover:     #e6e9ec;
+  --neutral-border:       #d8dce1;
+  --neutral-text:         #4b525e;
+  --neutral-solid:        #6b7280;
+  --neutral-solid-hover:  #4b525e;
+}
+
+/* Dark theme — applied when <html data-theme="dark">. Keeps the same semantic
+   names so component code is theme-agnostic. Linear-flavored: near-black canvas,
+   semi-transparent surfaces, indigo brand accent. */
+html[data-theme="dark"] {
+  --bg-app: #08090a;
+  --bg-panel: #0f1011;
+  --bg-elevated: #191a1b;
+  --bg-subtle: #141517;
+  --bg-hover: #1f2123;
+  --border-chrome: rgba(255,255,255,0.06);
+  --border-divider: rgba(255,255,255,0.09);
+  --shadow-card: 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-elevated: 0 6px 18px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+
+  --neutral-900: #f7f8f8;
+  --neutral-800: #e4e6ea;
+  --neutral-700: #d0d6e0;
+  --neutral-600: #a8aeb8;
+  --neutral-500: #8a8f98;
+  --neutral-400: #62666d;
+  --neutral-300: #4a4e57;
+  --neutral-200: #2a2c30;
+  --neutral-100: #1a1c1f;
+  --neutral-50:  #131416;
+
+  --safe-bg: rgba(16,185,129,0.10);
+  --safe-bg-hover: rgba(16,185,129,0.16);
+  --safe-border: rgba(16,185,129,0.30);
+  --safe-text: #34d399;
+  --safe-solid: #10b981;
+  --safe-solid-hover: #34d399;
+
+  --warning-bg: rgba(245,158,11,0.10);
+  --warning-bg-hover: rgba(245,158,11,0.18);
+  --warning-border: rgba(245,158,11,0.32);
+  --warning-text: #fbbf24;
+  --warning-solid: #f59e0b;
+  --warning-solid-hover: #fbbf24;
+
+  --blocked-bg: rgba(239,68,68,0.10);
+  --blocked-bg-hover: rgba(239,68,68,0.18);
+  --blocked-border: rgba(239,68,68,0.32);
+  --blocked-text: #f87171;
+  --blocked-solid: #ef4444;
+  --blocked-solid-hover: #f87171;
+
+  --recovered-bg: rgba(6,182,212,0.10);
+  --recovered-bg-hover: rgba(6,182,212,0.18);
+  --recovered-border: rgba(6,182,212,0.32);
+  --recovered-text: #22d3ee;
+  --recovered-solid: #06b6d4;
+  --recovered-solid-hover: #22d3ee;
+
+  --quarantined-bg: rgba(168,85,247,0.12);
+  --quarantined-bg-hover: rgba(168,85,247,0.20);
+  --quarantined-border: rgba(168,85,247,0.35);
+  --quarantined-text: #c084fc;
+  --quarantined-solid: #a855f7;
+  --quarantined-solid-hover: #c084fc;
+
+  --accent-bg: rgba(94,106,210,0.15);
+  --accent-bg-hover: rgba(94,106,210,0.25);
+  --accent-border: rgba(113,112,255,0.45);
+  --accent-text: #a3aaff;
+  --accent-solid: #5e6ad2;
+  --accent-solid-hover: #7170ff;
+
+  --neutral-bg: rgba(255,255,255,0.04);
+  --neutral-bg-hover: rgba(255,255,255,0.08);
+  --neutral-border: rgba(255,255,255,0.10);
+  --neutral-text: #a8aeb8;
+  --neutral-solid: #62666d;
+  --neutral-solid-hover: #8a8f98;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+
+html {
+  min-height: 100%;
+  background: var(--bg-app);
+}
+body, #root {
+  min-height: 100vh;
+}
+body {
+  font-family: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
+               Roboto, sans-serif;
+  font-feature-settings: "cv01", "ss03";
+  background: var(--bg-app);
+  color: var(--neutral-700);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  margin: 0;
+}
+code, kbd, samp, .font-mono {
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-feature-settings: normal;
+}
+::selection { background: var(--accent-bg); color: var(--accent-text); }
+
+/* ── Spec utility classes (globals.css) ───────────────────────────────── */
+
+.page-container { max-width: 80rem; margin-left: auto; margin-right: auto;
+                  padding: 1.5rem 1rem; }
+@media (min-width: 640px) { .page-container { padding-left: 1.5rem; padding-right: 1.5rem; } }
+@media (min-width: 1024px){ .page-container { padding-left: 2rem;   padding-right: 2rem; } }
+
+.page-title    { font-size: 1.875rem; line-height: 2.25rem; font-weight: 700;
+                 letter-spacing: -0.02em; color: var(--neutral-900); }
+.section-title { font-size: 1.25rem; line-height: 1.75rem; font-weight: 600;
+                 letter-spacing: -0.015em; color: var(--neutral-900); }
+
+.card { background: var(--bg-panel); border: 1px solid var(--border-divider);
+        border-radius: 12px; box-shadow: var(--shadow-card); }
+.card-padded { padding: 1rem; }
+@media (min-width: 640px) { .card-padded { padding: 1.5rem; } }
+
+/* ── Semantic Tailwind-shaped aliases ─────────────────────────────────── *
+ * These intentionally collide with Tailwind class names so JSX reads naturally.
+ * They cascade after Tailwind's CDN injection. */
+
+/* bg-X — default light tint */
+.bg-safe        { background-color: var(--safe-bg); }
+.bg-warning     { background-color: var(--warning-bg); }
+.bg-blocked     { background-color: var(--blocked-bg); }
+.bg-recovered   { background-color: var(--recovered-bg); }
+.bg-quarantined { background-color: var(--quarantined-bg); }
+.bg-accent      { background-color: var(--accent-bg); }
+.bg-neutral     { background-color: var(--neutral-bg); }
+
+/* bg-X-hover — interactive tints */
+.hover\:bg-safe-hover:hover               { background-color: var(--safe-bg-hover); }
+.hover\:bg-warning-hover:hover            { background-color: var(--warning-bg-hover); }
+.hover\:bg-blocked-hover:hover            { background-color: var(--blocked-bg-hover); }
+.hover\:bg-recovered-hover:hover          { background-color: var(--recovered-bg-hover); }
+.hover\:bg-quarantined-hover:hover        { background-color: var(--quarantined-bg-hover); }
+.hover\:bg-accent-hover:hover             { background-color: var(--accent-bg-hover); }
+.hover\:bg-neutral-hover:hover            { background-color: var(--neutral-bg-hover); }
+
+/* bg-X-solid — strong fills (use with text-white) */
+.bg-safe-solid        { background-color: var(--safe-solid); }
+.bg-warning-solid     { background-color: var(--warning-solid); }
+.bg-blocked-solid     { background-color: var(--blocked-solid); }
+.bg-recovered-solid   { background-color: var(--recovered-solid); }
+.bg-quarantined-solid { background-color: var(--quarantined-solid); }
+.bg-accent-solid      { background-color: var(--accent-solid); }
+.bg-neutral-solid     { background-color: var(--neutral-solid); }
+
+.hover\:bg-safe-solid-hover:hover        { background-color: var(--safe-solid-hover); }
+.hover\:bg-warning-solid-hover:hover     { background-color: var(--warning-solid-hover); }
+.hover\:bg-blocked-solid-hover:hover     { background-color: var(--blocked-solid-hover); }
+.hover\:bg-recovered-solid-hover:hover   { background-color: var(--recovered-solid-hover); }
+.hover\:bg-quarantined-solid-hover:hover { background-color: var(--quarantined-solid-hover); }
+.hover\:bg-accent-solid-hover:hover      { background-color: var(--accent-solid-hover); }
+.hover\:bg-neutral-solid-hover:hover     { background-color: var(--neutral-solid-hover); }
+
+/* text-X — readable text */
+.text-safe        { color: var(--safe-text); }
+.text-warning     { color: var(--warning-text); }
+.text-blocked     { color: var(--blocked-text); }
+.text-recovered   { color: var(--recovered-text); }
+.text-quarantined { color: var(--quarantined-text); }
+.text-accent      { color: var(--accent-text); }
+.text-neutral     { color: var(--neutral-text); }
+
+/* text-X-solid — bright variant */
+.text-safe-solid        { color: var(--safe-solid); }
+.text-warning-solid     { color: var(--warning-solid); }
+.text-blocked-solid     { color: var(--blocked-solid); }
+.text-recovered-solid   { color: var(--recovered-solid); }
+.text-quarantined-solid { color: var(--quarantined-solid); }
+.text-accent-solid      { color: var(--accent-solid); }
+.text-neutral-solid     { color: var(--neutral-solid); }
+
+/* border-X — subtle hairlines */
+.border-safe        { border-color: var(--safe-border); }
+.border-warning     { border-color: var(--warning-border); }
+.border-blocked     { border-color: var(--blocked-border); }
+.border-recovered   { border-color: var(--recovered-border); }
+.border-quarantined { border-color: var(--quarantined-border); }
+.border-accent      { border-color: var(--accent-border); }
+.border-neutral     { border-color: var(--neutral-border); }
+
+/* Theme-aware overrides for Tailwind's neutral-{shade} so the dashboard
+   adapts to dark mode without rewriting class names. */
+.text-neutral-900 { color: var(--neutral-900) !important; }
+.text-neutral-800 { color: var(--neutral-800) !important; }
+.text-neutral-700 { color: var(--neutral-700) !important; }
+.text-neutral-600 { color: var(--neutral-600) !important; }
+.text-neutral-500 { color: var(--neutral-500) !important; }
+.text-neutral-400 { color: var(--neutral-400) !important; }
+.text-neutral-300 { color: var(--neutral-300) !important; }
+.bg-neutral-50    { background-color: var(--neutral-50) !important; }
+.bg-neutral-100   { background-color: var(--neutral-100) !important; }
+.bg-neutral-200   { background-color: var(--neutral-200) !important; }
+.border-neutral-100 { border-color: var(--neutral-100) !important; }
+.border-neutral-200 { border-color: var(--neutral-200) !important; }
+.border-neutral-300 { border-color: var(--neutral-300) !important; }
+.bg-white         { background-color: var(--bg-panel) !important; }
+.divide-neutral-100 > * + * { border-color: var(--neutral-100) !important; }
+.divide-neutral-200 > * + * { border-color: var(--neutral-200) !important; }
+
+/* Misc helpers */
+.ring-accent { box-shadow: 0 0 0 3px var(--accent-bg); }
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--neutral-200); border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* Heartbeat pulse */
+@keyframes ig-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--safe-solid); opacity: 0.95; }
+  70%  { box-shadow: 0 0 0 8px rgba(16,185,129,0); opacity: 1; }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); opacity: 0.95; }
+}
+.ig-pulse { animation: ig-pulse 2.2s ease-out infinite; }
+@keyframes ig-pulse-warn {
+  0%, 100% { background: var(--warning-solid); }
+  50%      { background: var(--warning-solid-hover); }
+}
+.ig-pulse-warn { animation: ig-pulse-warn 1.6s ease-in-out infinite; }
+
+/* Inline expand transition */
+.ig-expand-enter { max-height: 0; opacity: 0; }
+.ig-expand-enter-active { max-height: 320px; opacity: 1;
+  transition: max-height 220ms ease, opacity 180ms ease; }
+
+/* Drawer */
+.ig-drawer-backdrop {
+  background: rgba(15,17,21,0.20);
+  backdrop-filter: blur(2px);
+}
+
+/* Sidebar nav item */
+.ig-nav {
+  display:flex; align-items:center; gap:8px;
+  padding: 6px 8px; border-radius: 6px;
+  color: var(--neutral-600); font-size: 13px; font-weight: 510;
+  cursor: pointer; transition: background 120ms ease, color 120ms ease;
+}
+.ig-nav:hover { background: var(--bg-hover); color: var(--neutral-900); }
+.ig-nav[data-active="true"] { background: var(--bg-subtle); color: var(--neutral-900); }
+.ig-nav-icon { color: var(--neutral-500); flex-shrink: 0; }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Compact / cozy / comfortable density modifiers — applied at .ig-density-* */
+.ig-density-compact .ig-event { padding: 8px 12px; }
+.ig-density-compact .ig-event-title { font-size: 13px; }
+.ig-density-compact .ig-event-meta  { font-size: 11px; }
+.ig-density-compact .card-padded    { padding: 12px; }
+
+.ig-density-cozy .ig-event { padding: 12px 16px; }
+.ig-density-cozy .ig-event-title { font-size: 14px; }
+.ig-density-cozy .ig-event-meta  { font-size: 12px; }
+
+.ig-density-comfortable .ig-event { padding: 18px 20px; }
+.ig-density-comfortable .ig-event-title { font-size: 15px; }
+.ig-density-comfortable .ig-event-meta  { font-size: 13px; }
+.ig-density-comfortable .card-padded    { padding: 24px; }

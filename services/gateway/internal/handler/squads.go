@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -149,6 +151,198 @@ func (s *InMemorySquadStore) RecordRun(id string) (models.Squad, error) {
 	return sq, nil
 }
 
+// SQLiteSquadStore persists squads in the gateway's shared SQLite DB.
+// On first open it seeds the built-in templates instantiated into the
+// default workspace — mirrors the in-memory store's boot behavior.
+type SQLiteSquadStore struct {
+	db     *sql.DB
+	logger *slog.Logger
+}
+
+// NewSQLiteSquadStore wraps the shared *sql.DB. Seeds built-ins on first run.
+func NewSQLiteSquadStore(db *sql.DB, logger *slog.Logger) (*SQLiteSquadStore, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	s := &SQLiteSquadStore{db: db, logger: logger.With(slog.String("component", "squad_store"))}
+	if err := s.seedIfEmpty(); err != nil {
+		return nil, fmt.Errorf("squad store seed: %w", err)
+	}
+	return s, nil
+}
+
+func (s *SQLiteSquadStore) seedIfEmpty() error {
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM gateway_squads").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	templates := models.AllSquadTemplates()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i, tmpl := range templates {
+		sq := models.SquadFromTemplate(tmpl, "default")
+		body, err := json.Marshal(sq)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		active := 0
+		if sq.IsActive {
+			active = 1
+		}
+		if _, err := tx.Exec(
+			"INSERT INTO gateway_squads (id, is_active, body, created_at, updated_at, seq) VALUES (?, ?, ?, ?, ?, ?)",
+			sq.ID, active, string(body), now, now, i,
+		); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// List returns a page of squads ordered by seed/insertion sequence.
+func (s *SQLiteSquadStore) List(page, pageSize int) ([]models.Squad, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM gateway_squads").Scan(&total); err != nil {
+		s.logger.Warn("squad count failed", slog.String("error", err.Error()))
+		return nil, 0
+	}
+
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query("SELECT body FROM gateway_squads ORDER BY seq ASC LIMIT ? OFFSET ?", pageSize, offset)
+	if err != nil {
+		s.logger.Warn("squad list failed", slog.String("error", err.Error()))
+		return nil, total
+	}
+	defer rows.Close()
+
+	var out []models.Squad
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			continue
+		}
+		var sq models.Squad
+		if err := json.Unmarshal([]byte(body), &sq); err != nil {
+			continue
+		}
+		out = append(out, sq)
+	}
+	return out, total
+}
+
+// GetByID returns a single squad by id.
+func (s *SQLiteSquadStore) GetByID(id string) (models.Squad, bool) {
+	var body string
+	if err := s.db.QueryRow("SELECT body FROM gateway_squads WHERE id = ?", id).Scan(&body); err != nil {
+		return models.Squad{}, false
+	}
+	var sq models.Squad
+	if err := json.Unmarshal([]byte(body), &sq); err != nil {
+		return models.Squad{}, false
+	}
+	return sq, true
+}
+
+// Create inserts a new squad. Returns errAlreadyExists if id is taken.
+func (s *SQLiteSquadStore) Create(squad models.Squad) (models.Squad, error) {
+	if _, ok := s.GetByID(squad.ID); ok {
+		return models.Squad{}, errAlreadyExists
+	}
+	now := time.Now().UTC()
+	squad.CreatedAt = now
+	squad.UpdatedAt = now
+	body, err := json.Marshal(squad)
+	if err != nil {
+		return models.Squad{}, err
+	}
+	active := 0
+	if squad.IsActive {
+		active = 1
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO gateway_squads (id, is_active, body, created_at, updated_at, seq)
+		 VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM gateway_squads))`,
+		squad.ID, active, string(body), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
+	); err != nil {
+		return models.Squad{}, err
+	}
+	return squad, nil
+}
+
+// Activate flips is_active=1.
+func (s *SQLiteSquadStore) Activate(id string) (models.Squad, error) {
+	return s.setActive(id, true)
+}
+
+// Pause flips is_active=0.
+func (s *SQLiteSquadStore) Pause(id string) (models.Squad, error) {
+	return s.setActive(id, false)
+}
+
+// RecordRun updates the LastRunAt timestamp.
+func (s *SQLiteSquadStore) RecordRun(id string) (models.Squad, error) {
+	sq, ok := s.GetByID(id)
+	if !ok {
+		return models.Squad{}, errNotFound
+	}
+	if !sq.IsActive {
+		return models.Squad{}, errSquadNotActive
+	}
+	now := time.Now().UTC()
+	sq.LastRunAt = &now
+	sq.UpdatedAt = now
+	body, err := json.Marshal(sq)
+	if err != nil {
+		return models.Squad{}, err
+	}
+	if _, err := s.db.Exec(
+		"UPDATE gateway_squads SET body = ?, updated_at = ? WHERE id = ?",
+		string(body), now.Format(time.RFC3339Nano), id,
+	); err != nil {
+		return models.Squad{}, err
+	}
+	return sq, nil
+}
+
+func (s *SQLiteSquadStore) setActive(id string, active bool) (models.Squad, error) {
+	sq, ok := s.GetByID(id)
+	if !ok {
+		return models.Squad{}, errNotFound
+	}
+	sq.IsActive = active
+	sq.UpdatedAt = time.Now().UTC()
+	body, err := json.Marshal(sq)
+	if err != nil {
+		return models.Squad{}, err
+	}
+	flag := 0
+	if active {
+		flag = 1
+	}
+	if _, err := s.db.Exec(
+		"UPDATE gateway_squads SET is_active = ?, body = ?, updated_at = ? WHERE id = ?",
+		flag, string(body), sq.UpdatedAt.Format(time.RFC3339Nano), id,
+	); err != nil {
+		return models.Squad{}, err
+	}
+	return sq, nil
+}
+
 // errAlreadyExists is returned when attempting to create a duplicate resource.
 var errAlreadyExists = errorString("already exists")
 
@@ -170,11 +364,11 @@ type CreateSquadRequest struct {
 type SquadHandler struct {
 	logger     *slog.Logger
 	store      SquadStore
-	eventStore *InMemoryEventStore
+	eventStore EventStore
 }
 
 // NewSquadHandler creates a SquadHandler with the given store and event store.
-func NewSquadHandler(logger *slog.Logger, store SquadStore, eventStore *InMemoryEventStore) *SquadHandler {
+func NewSquadHandler(logger *slog.Logger, store SquadStore, eventStore EventStore) *SquadHandler {
 	return &SquadHandler{
 		logger:     logger,
 		store:      store,

@@ -1,0 +1,32 @@
+[package]
+name = "irongolem-runtimed"
+description = "IPC daemon binary exposing the IronGolem runtime over NDJSON stdio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "runtimed"
+path = "src/main.rs"
+
+[dependencies]
+irongolem-core = { path = "../core" }
+irongolem-workflow = { path = "../workflow" }
+irongolem-sandbox = { path = "../sandbox" }
+irongolem-verifier = { path = "../verifier" }
+irongolem-checkpoints = { path = "../checkpoints" }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

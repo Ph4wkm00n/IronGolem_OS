@@ -22,6 +22,18 @@ export {
 } from "./spacing";
 export type { SpacingKey } from "./spacing";
 
+export {
+  SEMANTIC_PALETTE_NAMES,
+  COLOR_SCALE_FIELDS,
+  buildTailwindColors,
+  buildRootCssVariables,
+} from "./tailwind-bridge";
+export type {
+  SemanticPaletteName,
+  SemanticTailwindColor,
+  TailwindSemanticColors,
+} from "./tailwind-bridge";
+
 import { cssCustomProperties as colorProps } from "./colors";
 import { cssCustomProperties as typographyProps } from "./typography";
 import { cssCustomProperties as spacingProps } from "./spacing";
