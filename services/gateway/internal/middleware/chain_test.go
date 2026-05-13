@@ -27,11 +27,12 @@ func TestChain_AuthThenTenantThenPolicy(t *testing.T) {
 	exp := time.Now().Add(time.Hour)
 
 	tokOperator, err := middleware.MintToken(middleware.TokenClaims{
-		TenantID:  "tenant-x",
-		UserID:    "alice",
-		AgentRole: "executor",
-		ChannelID: "chat-1",
-		ExpiresAt: exp,
+		TenantID:    "tenant-x",
+		WorkspaceID: "ws-22",
+		UserID:      "alice",
+		AgentRole:   "executor",
+		ChannelID:   "chat-1",
+		ExpiresAt:   exp,
 	}, secret)
 	if err != nil {
 		t.Fatalf("mint operator: %v", err)
@@ -40,9 +41,11 @@ func TestChain_AuthThenTenantThenPolicy(t *testing.T) {
 	called := false
 	terminal := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		// Echo back the tenant id the chain established so the test can
-		// confirm the token claims actually flowed through.
-		_, _ = w.Write([]byte(middleware.TenantIDFromContext(r.Context())))
+		// Echo back tenant + workspace so the test can confirm BOTH
+		// claims flowed through (v0.2 Step 2 added workspace).
+		tenant := middleware.TenantIDFromContext(r.Context())
+		workspace := middleware.WorkspaceIDFromContext(r.Context())
+		_, _ = w.Write([]byte(tenant + "/" + workspace))
 	})
 
 	logger := quietLogger()
@@ -89,18 +92,19 @@ func TestChain_AuthThenTenantThenPolicy(t *testing.T) {
 	if !called {
 		t.Fatal("valid token: handler was not called")
 	}
-	if rr.Body.String() != "tenant-x" {
-		t.Fatalf("tenant did not flow through chain: got %q want tenant-x", rr.Body.String())
+	if rr.Body.String() != "tenant-x/ws-22" {
+		t.Fatalf("tenant+workspace did not flow through chain: got %q want tenant-x/ws-22", rr.Body.String())
 	}
 
 	// 4. Protected route, token with an UNKNOWN agent role → policy 403.
 	// The role list lives in policy.go; "wizard" is intentionally absent.
 	tokWizard, _ := middleware.MintToken(middleware.TokenClaims{
-		TenantID:  "tenant-x",
-		UserID:    "alice",
-		AgentRole: "wizard",
-		ChannelID: "chat-1",
-		ExpiresAt: exp,
+		TenantID:    "tenant-x",
+		WorkspaceID: "ws-22",
+		UserID:      "alice",
+		AgentRole:   "wizard",
+		ChannelID:   "chat-1",
+		ExpiresAt:   exp,
 	}, secret)
 	called = false
 	rr = httptest.NewRecorder()

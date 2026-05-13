@@ -24,11 +24,12 @@ func TestMintAndVerify_RoundTrip(t *testing.T) {
 	exp := now.Add(15 * time.Minute)
 
 	tok, err := MintToken(TokenClaims{
-		TenantID:  "tenant-a",
-		UserID:    "alice",
-		AgentRole: "operator",
-		ChannelID: "chat-1",
-		ExpiresAt: exp,
+		TenantID:    "tenant-a",
+		WorkspaceID: "ws-7",
+		UserID:      "alice",
+		AgentRole:   "operator",
+		ChannelID:   "chat-1",
+		ExpiresAt:   exp,
 	}, secret)
 	if err != nil {
 		t.Fatalf("MintToken: %v", err)
@@ -38,7 +39,7 @@ func TestMintAndVerify_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyToken: %v", err)
 	}
-	if claims.TenantID != "tenant-a" || claims.UserID != "alice" || claims.AgentRole != "operator" || claims.ChannelID != "chat-1" {
+	if claims.TenantID != "tenant-a" || claims.WorkspaceID != "ws-7" || claims.UserID != "alice" || claims.AgentRole != "operator" || claims.ChannelID != "chat-1" {
 		t.Fatalf("claims roundtrip mismatch: %+v", claims)
 	}
 	// Expiry is rounded to the second; allow exact match.
@@ -82,6 +83,48 @@ func TestVerifyToken_RejectsWrongSecret(t *testing.T) {
 	if _, err := VerifyToken(tok, bad, time.Now(), 30*time.Second); err == nil {
 		t.Fatal("VerifyToken accepted wrong secret")
 	}
+}
+
+// TestVerifyToken_RejectsV01TokenShape proves Step 2's no-compat promise:
+// a token minted under the v0.1 5-field payload (tenant:user:role:channel:exp)
+// is rejected even when its MAC is correctly recomputed against the same
+// secret. v0.2 requires exactly 6 fields with the workspace_id in slot 1.
+func TestVerifyToken_RejectsV01TokenShape(t *testing.T) {
+	secret := []byte("s")
+	exp := time.Now().Add(time.Hour).UTC().Truncate(time.Second).Unix()
+	// Hand-craft a v0.1-shape payload (no workspace_id slot).
+	payload := "tenant-a:alice:operator:chat-1:" + strconvI(exp)
+	mac := hmacHex(secret, payload)
+	v01Token := payload + "." + mac
+
+	if _, err := VerifyToken(v01Token, secret, time.Now(), 30*time.Second); err == nil {
+		t.Fatal("VerifyToken accepted a v0.1 (5-field) token; v0.2 must reject")
+	}
+}
+
+// strconvI is a local helper so the v0.1-shape constructor stays inline
+// without importing strconv just for one test.
+func strconvI(n int64) string {
+	const digits = "0123456789"
+	if n == 0 {
+		return "0"
+	}
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+	var out [20]byte
+	i := len(out)
+	for n > 0 {
+		i--
+		out[i] = digits[n%10]
+		n /= 10
+	}
+	if negative {
+		i--
+		out[i] = '-'
+	}
+	return string(out[i:])
 }
 
 func TestMintToken_RejectsForbiddenChars(t *testing.T) {

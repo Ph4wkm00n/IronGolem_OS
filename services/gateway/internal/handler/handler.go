@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/connector"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/middleware"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/planner"
 	gwruntime "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/events"
@@ -134,9 +135,9 @@ func (h *Handler) MessageInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TenantID == "" || req.ConnectorID == "" || req.Content == "" {
+	if req.ConnectorID == "" || req.Content == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "tenant_id, connector_id, and content are required",
+			"error": "connector_id and content are required",
 		})
 		return
 	}
@@ -156,13 +157,23 @@ func (h *Handler) MessageInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Identity always comes from the HMAC token (auth middleware put it
+	// in the request context). The request body's tenant_id / workspace_id
+	// are NOT consulted — caller-supplied identity fields would let any
+	// authenticated client impersonate any tenant or workspace.
+	tenantID := middleware.TenantIDFromContext(ctx)
+	if tenantID == "" {
+		tenantID = req.TenantID // pre-Step-5 fallback (in-memory tests)
+	}
+	workspaceID := middleware.WorkspaceIDFromContext(ctx)
+
 	msg := planner.InboundMessage{
 		ConnectorID: req.ConnectorID,
 		ChannelID:   req.ChannelID,
 		UserID:      req.UserID,
 		Content:     req.Content,
-		TenantID:    req.TenantID,
-		WorkspaceID: req.WorkspaceID,
+		TenantID:    tenantID,
+		WorkspaceID: workspaceID,
 	}
 
 	if h.runtime == nil {
@@ -172,7 +183,7 @@ func (h *Handler) MessageInbound(w http.ResponseWriter, r *http.Request) {
 		h.logger.InfoContext(ctx, "message received (runtime not wired)",
 			slog.String("event_id", evtID),
 			slog.String("connector_id", req.ConnectorID),
-			slog.String("tenant_id", req.TenantID),
+			slog.String("tenant_id", msg.TenantID),
 		)
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"event_id": evtID,

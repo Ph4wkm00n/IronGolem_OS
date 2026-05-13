@@ -33,11 +33,20 @@ import (
 
 // TokenClaims is the parsed shape of a bearer token. Field names match the
 // X-* request headers they replace.
+//
+// Wire format (v0.2 Step 2):
+//
+//	<tenant>:<workspace>:<user>:<role>:<channel>:<exp>.<hex_hmac>
+//
+// v0.1 used a 5-field payload (no workspace). v0.2 rejects v0.1 tokens
+// outright — there's no compat layer because v0.1 never minted long-lived
+// tokens. Operators re-mint after upgrade.
 type TokenClaims struct {
-	TenantID  string
-	UserID    string
-	AgentRole string
-	ChannelID string
+	TenantID    string
+	WorkspaceID string
+	UserID      string
+	AgentRole   string
+	ChannelID   string
 	// ExpiresAt is the absolute UTC moment after which the token is invalid.
 	ExpiresAt time.Time
 }
@@ -59,14 +68,14 @@ func MintToken(claims TokenClaims, secret []byte) (string, error) {
 	if !claims.ExpiresAt.After(time.Now()) {
 		return "", errors.New("auth: expiry must be in the future")
 	}
-	for _, v := range []string{claims.TenantID, claims.UserID, claims.AgentRole, claims.ChannelID} {
+	for _, v := range []string{claims.TenantID, claims.WorkspaceID, claims.UserID, claims.AgentRole, claims.ChannelID} {
 		if strings.ContainsAny(v, ":.") {
 			return "", fmt.Errorf("auth: token field %q must not contain ':' or '.'", v)
 		}
 	}
 
-	payload := fmt.Sprintf("%s:%s:%s:%s:%d",
-		claims.TenantID, claims.UserID, claims.AgentRole, claims.ChannelID,
+	payload := fmt.Sprintf("%s:%s:%s:%s:%s:%d",
+		claims.TenantID, claims.WorkspaceID, claims.UserID, claims.AgentRole, claims.ChannelID,
 		claims.ExpiresAt.UTC().Unix(),
 	)
 	mac := hmacHex(secret, payload)
@@ -95,10 +104,12 @@ func VerifyToken(token string, secret []byte, now time.Time, clockSkew time.Dura
 	}
 
 	parts := strings.Split(payload, ":")
-	if len(parts) != 5 {
+	// v0.2 Step 2: exactly 6 fields. 5-field tokens minted under v0.1 are
+	// rejected here — no silent re-interpretation, no compat layer.
+	if len(parts) != 6 {
 		return TokenClaims{}, ErrInvalidToken
 	}
-	expUnix, err := strconv.ParseInt(parts[4], 10, 64)
+	expUnix, err := strconv.ParseInt(parts[5], 10, 64)
 	if err != nil {
 		return TokenClaims{}, ErrInvalidToken
 	}
@@ -108,11 +119,12 @@ func VerifyToken(token string, secret []byte, now time.Time, clockSkew time.Dura
 	}
 
 	claims := TokenClaims{
-		TenantID:  parts[0],
-		UserID:    parts[1],
-		AgentRole: parts[2],
-		ChannelID: parts[3],
-		ExpiresAt: exp,
+		TenantID:    parts[0],
+		WorkspaceID: parts[1],
+		UserID:      parts[2],
+		AgentRole:   parts[3],
+		ChannelID:   parts[4],
+		ExpiresAt:   exp,
 	}
 	if claims.TenantID == "" {
 		return TokenClaims{}, ErrInvalidToken
