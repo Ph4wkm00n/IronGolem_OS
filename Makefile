@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e
+.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e smoke-telegram
 
 # --- Top-level targets ---
 
@@ -104,3 +104,9 @@ check-real-api:
 # asserts the reply and the audit trail.
 smoke-e2e:
 	bash scripts/smoke-e2e.sh
+
+# v0.2 Step 1 Gate 4: real Telegram connector smoke. Stands up an httptest
+# impersonator, boots the gateway pointed at it, asserts the outbound
+# sendMessage round-trip matches expectations.
+smoke-telegram:
+	bash scripts/smoke-telegram.sh
