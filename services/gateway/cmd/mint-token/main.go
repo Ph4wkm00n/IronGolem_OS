@@ -26,6 +26,11 @@ import (
 
 func main() {
 	tenant := flag.String("tenant", "default", "tenant id claim")
+	// v0.2 Step 2: defaults to the nil UUID so solo-mode scripts that
+	// don't supply --workspace still produce valid tokens. The gateway
+	// handler stamps the same nil-UUID placeholder when an inbound
+	// message arrives without one.
+	workspace := flag.String("workspace", "00000000-0000-0000-0000-000000000000", "workspace id claim (UUID; defaults to the nil UUID for solo mode)")
 	user := flag.String("user", "smoke", "user id claim")
 	role := flag.String("role", "executor", "agent role claim (must match a known policy role)")
 	channel := flag.String("channel", "smoke", "channel id claim")
@@ -39,11 +44,12 @@ func main() {
 	}
 
 	tok, err := middleware.MintToken(middleware.TokenClaims{
-		TenantID:  *tenant,
-		UserID:    *user,
-		AgentRole: *role,
-		ChannelID: *channel,
-		ExpiresAt: time.Now().Add(*ttl),
+		TenantID:    *tenant,
+		WorkspaceID: *workspace,
+		UserID:      *user,
+		AgentRole:   *role,
+		ChannelID:   *channel,
+		ExpiresAt:   time.Now().Add(*ttl),
 	}, secret)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mint-token:", err)

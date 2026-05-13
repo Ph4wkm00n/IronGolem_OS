@@ -38,6 +38,15 @@ func ChannelIDFromContext(ctx context.Context) string {
 	return IdentityFromContext(ctx).ChannelID
 }
 
+// WorkspaceIDFromContext returns the workspace id from the token claims,
+// or "" when the request was anonymous (solo mode + no token, or the
+// exempt /healthz path). v0.2 Step 2 introduced this field; callers that
+// need a default should fall back to the gateway's nil-UUID placeholder
+// rather than treating empty as authoritative.
+func WorkspaceIDFromContext(ctx context.Context) string {
+	return IdentityFromContext(ctx).WorkspaceID
+}
+
 // withTenantID stores the tenant ID in the request context.
 func withTenantID(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantContextKey{}, tenantID)

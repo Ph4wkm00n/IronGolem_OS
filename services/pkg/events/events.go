@@ -6,6 +6,8 @@ package events
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // EventKind enumerates all event types in the system.
@@ -158,8 +160,11 @@ func NewEvent(kind EventKind, tenantID, source string, payload json.RawMessage) 
 	}
 }
 
-// generateID produces a simple unique identifier. In production this would
-// use a proper UUID library; here we use a timestamp-based approach.
+// generateID produces a unique identifier for each event. v0.2 switched
+// from a nanosecond-timestamp string to UUIDv4 because consecutive calls
+// inside a single test or hot path could collide on the timestamp and
+// the SQLite event store's INSERT OR REPLACE would silently overwrite
+// the earlier row.
 func generateID() string {
-	return time.Now().UTC().Format("20060102150405.000000000")
+	return uuid.NewString()
 }
