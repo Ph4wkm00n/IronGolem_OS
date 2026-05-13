@@ -78,22 +78,25 @@ func (c *Connector) Type() connectors.ConnectorType {
 }
 
 // Connect verifies the bot token by calling getMe and stores allowed chat IDs.
+//
+// Locking note: getMe is an HTTP round-trip that internally needs to read
+// c.apiBase + c.botToken via apiCall's RLock. Holding c.mu.Lock() across
+// that call deadlocks (Go's RWMutex doesn't allow the same goroutine to
+// RLock while it holds Lock). The implementation therefore populates the
+// fields under one critical section, drops the lock for the network call,
+// and re-acquires to flip connected=true on success.
 func (c *Connector) Connect(ctx context.Context, config map[string]string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.botToken = config["bot_token"]
-	if c.botToken == "" {
+	token := config["bot_token"]
+	if token == "" {
 		return fmt.Errorf("telegram connector: bot_token is required")
 	}
 
-	c.apiBase = defaultAPIBase
+	apiBase := defaultAPIBase
 	if base := config["api_base"]; base != "" {
-		c.apiBase = base
+		apiBase = base
 	}
 
-	// Parse allowed_chat_ids as a comma-separated list of integers.
-	c.allowedChatIDs = make(map[int64]bool)
+	allowed := make(map[int64]bool)
 	if ids := config["allowed_chat_ids"]; ids != "" {
 		for _, raw := range strings.Split(ids, ",") {
 			raw = strings.TrimSpace(raw)
@@ -101,22 +104,33 @@ func (c *Connector) Connect(ctx context.Context, config map[string]string) error
 			if err != nil {
 				return fmt.Errorf("telegram connector: invalid chat ID %q: %w", raw, err)
 			}
-			c.allowedChatIDs[id] = true
+			allowed[id] = true
 		}
 	}
 
-	c.httpClient = &http.Client{Timeout: time.Duration(pollTimeout+10) * time.Second}
+	httpClient := &http.Client{Timeout: time.Duration(pollTimeout+10) * time.Second}
 
-	// Verify the bot token with getMe.
+	// Stage 1: install the config so apiCall can read it.
+	c.mu.Lock()
+	c.botToken = token
+	c.apiBase = apiBase
+	c.allowedChatIDs = allowed
+	c.httpClient = httpClient
+	c.mu.Unlock()
+
+	// Stage 2: verify with a no-lock HTTP round-trip.
 	var bot botUser
 	if err := c.apiCall(ctx, "getMe", nil, &bot); err != nil {
 		return fmt.Errorf("telegram connector: getMe failed: %w", err)
 	}
 
+	// Stage 3: commit the connected state on success.
+	c.mu.Lock()
 	c.botID = bot.ID
 	c.botName = bot.Username
 	c.connected = true
 	c.done = make(chan struct{})
+	c.mu.Unlock()
 
 	return nil
 }

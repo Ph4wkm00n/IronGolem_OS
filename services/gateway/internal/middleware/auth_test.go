@@ -16,7 +16,11 @@ func quietLogger() *slog.Logger {
 
 func TestMintAndVerify_RoundTrip(t *testing.T) {
 	secret := []byte("hunter2-please-use-a-real-secret")
-	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	// `now` must be wall-clock current because MintToken rejects expiries in
+	// the past against time.Now(); a hardcoded date drifts past tolerance
+	// the moment the calendar moves. Round to seconds so the equality check
+	// at the bottom holds.
+	now := time.Now().UTC().Truncate(time.Second)
 	exp := now.Add(15 * time.Minute)
 
 	tok, err := MintToken(TokenClaims{
@@ -59,11 +63,14 @@ func TestVerifyToken_RejectsTampering(t *testing.T) {
 
 func TestVerifyToken_RejectsExpired(t *testing.T) {
 	secret := []byte("s")
-	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	// Same calendar-drift rationale as TestMintAndVerify_RoundTrip: mint
+	// against wall-clock now, then verify with a synthetic future `now`
+	// that's past the configured skew window.
+	now := time.Now().UTC().Truncate(time.Second)
 	tok, _ := MintToken(TokenClaims{TenantID: "t", ExpiresAt: now.Add(5 * time.Minute)}, secret)
 
 	// Verify 10 minutes after exp (well past clock skew).
-	if _, err := VerifyToken(tok, secret, now.Add(10*time.Minute), 30*time.Second); err == nil {
+	if _, err := VerifyToken(tok, secret, now.Add(15*time.Minute), 30*time.Second); err == nil {
 		t.Fatal("VerifyToken accepted expired token")
 	}
 }

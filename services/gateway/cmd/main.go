@@ -106,6 +106,42 @@ func main() {
 		return res.Reply, nil
 	})
 
+	// v0.2 Step 1: register the real Telegram connector when a bot token is
+	// supplied. The IRONGOLEM_TELEGRAM_API_BASE env override is the seam
+	// `smoke-telegram` uses to point the connector at an httptest server.
+	// Absence of the token is the explicit "Telegram is off" signal — no
+	// reflection on whether the connectors module is linked.
+	if token := os.Getenv("IRONGOLEM_TELEGRAM_BOT_TOKEN"); token != "" {
+		tgCtx, tgCancel := context.WithCancel(context.Background())
+		tgSource, tgErr := connector.NewTelegramSource(tgCtx, connector.TelegramSourceConfig{
+			ConnectorID:    envOrDefault("IRONGOLEM_TELEGRAM_CONNECTOR_ID", "telegram"),
+			BotToken:       token,
+			APIBase:        os.Getenv("IRONGOLEM_TELEGRAM_API_BASE"),
+			AllowedChatIDs: os.Getenv("IRONGOLEM_TELEGRAM_ALLOWED_CHAT_IDS"),
+			TenantID:       envOrDefault("IRONGOLEM_TELEGRAM_TENANT_ID", "default"),
+		})
+		if tgErr != nil {
+			logger.Error("telegram source init failed", slog.String("error", tgErr.Error()))
+			tgCancel()
+			runtimeCancel()
+			os.Exit(1)
+		}
+		if err := connMgr.RegisterSource(envOrDefault("IRONGOLEM_TELEGRAM_CONNECTOR_ID", "telegram"), tgSource); err != nil {
+			logger.Error("telegram source register failed", slog.String("error", err.Error()))
+			tgCancel()
+			runtimeCancel()
+			os.Exit(1)
+		}
+		// The source goroutine inherits tgCtx; DisconnectAll on shutdown
+		// cancels the pump context, which in turn drains the Telegram
+		// poll goroutine.
+		defer tgCancel()
+		logger.Info("telegram connector registered",
+			slog.String("connector_id", envOrDefault("IRONGOLEM_TELEGRAM_CONNECTOR_ID", "telegram")),
+			slog.Bool("custom_api_base", os.Getenv("IRONGOLEM_TELEGRAM_API_BASE") != ""),
+		)
+	}
+
 	recipeHandler := handler.NewRecipeHandler(logger, recipeStore, eventStore)
 	approvalHandler := handler.NewApprovalHandler(logger, approvalStore, eventStore)
 	timelineHandler := handler.NewTimelineHandler(logger, eventStore)
