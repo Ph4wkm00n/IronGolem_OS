@@ -146,6 +146,7 @@ func main() {
 	approvalHandler := handler.NewApprovalHandler(logger, approvalStore, eventStore)
 	timelineHandler := handler.NewTimelineHandler(logger, eventStore)
 	squadHandler := handler.NewSquadHandler(logger, squadStore, eventStore)
+	inboxHandler := handler.NewInboxHandler(logger, eventStore)
 
 	mux := http.NewServeMux()
 
@@ -185,6 +186,9 @@ func main() {
 	// Timeline / event routes.
 	mux.HandleFunc("GET /api/v1/events", timelineHandler.ListEvents)
 	mux.HandleFunc("GET /api/v1/events/{id}", timelineHandler.GetEvent)
+
+	// v0.2 Step 3: inbox listing for the v2 frontend.
+	mux.HandleFunc("GET /api/v1/inbox", inboxHandler.ListInbox)
 
 	// HMAC token authentication. The secret comes from IRONGOLEM_HMAC_SECRET
 	// and is required at boot — fail-closed per Step 7 of the v0.1 plan

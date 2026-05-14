@@ -409,9 +409,20 @@ export const v2 = {
   },
   inbox: {
     getMock: () => inboxMock.mockInboxItems,
+    /**
+     * v0.2 Step 3 wired the live `/api/v1/inbox` endpoint on the gateway
+     * (see services/gateway/internal/handler/inbox.go). When
+     * `VITE_API_MODE_INBOX=real` the call goes to the gateway; otherwise
+     * the mock array is returned synchronously through the Promise.
+     *
+     * The gateway shape is `{ items, total, page, page_size }` to mirror
+     * the existing `/events` pagination contract; we unwrap `items` here
+     * so the page-level code stays oblivious to the envelope.
+     */
     async list() {
       if (!isRealForRoute("inbox")) return v2.inbox.getMock();
-      return get<typeof inboxMock.mockInboxItems>("/v2/inbox");
+      const envelope = await get<{ items: typeof inboxMock.mockInboxItems }>("/inbox");
+      return envelope.items;
     },
   },
   recipes: {
