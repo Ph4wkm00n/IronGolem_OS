@@ -43,6 +43,11 @@ var routeMapping = map[string]policy.Permission{
 
 	// Event / timeline actions
 	"GET /api/v1/events": {Resource: "event", Action: "read"},
+
+	// v0.2 Step 3: Inbox listing (separate from event/timeline because
+	// the audit-event resource is the persistence shape; inbox is the
+	// product surface).
+	"GET /api/v1/inbox": {Resource: "inbox", Action: "read"},
 }
 
 // normalizeRoute strips path parameter values to produce a canonical route key.

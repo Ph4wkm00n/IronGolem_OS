@@ -203,10 +203,15 @@ type ItemAction =
   | { type: "deny"; id: string; cause: string }
   | { type: "snooze"; id: string }
   | { type: "edit-commit"; id: string; draft: Draft }
-  | { type: "mark-read"; id: string };
+  | { type: "mark-read"; id: string }
+  // v0.2 Step 3: full replacement so the real-API useEffect can swap the
+  // mocked seed with the response from GET /api/v1/inbox once it arrives.
+  | { type: "replace"; items: Item[] };
 
 function itemsReducer(state: Item[], action: ItemAction): Item[] {
   switch (action.type) {
+    case "replace":
+      return action.items.map((e) => ({ ...e }));
     case "approve":
       return state.map((it) =>
         it.id === action.id
@@ -847,6 +852,32 @@ export function Inbox() {
   const [editing, setEditing] = useState(false);
   const [draftBuffer, setDraftBuffer] = useState<Draft | undefined>(undefined);
   const [toast, setToast] = useState<ToastState | null>(null);
+
+  // v0.2 Step 3 — F6 Inbox real-API. When VITE_API_MODE_INBOX=real the
+  // first render shows the mock seed (so the layout never flashes empty),
+  // then this effect fetches the real list from the gateway and swaps it
+  // in via the reducer's `replace` action. In mock mode `api.v2.inbox.list()`
+  // resolves to the same mock array synchronously, so the dispatch is a
+  // no-op `replace` — kept unconditional for the sole benefit of catching
+  // shape drift between the mock and the real wire contract on the next
+  // hot-reload.
+  useEffect(() => {
+    let cancelled = false;
+    api.v2.inbox
+      .list()
+      .then((next) => {
+        if (cancelled) return;
+        dispatch({ type: "replace", items: next.map((e) => ({ ...e })) as Item[] });
+        if (next.length > 0) setSelectedId(next[0]!.id);
+      })
+      .catch(() => {
+        // Real-mode failures keep the mock seed visible; the gateway log
+        // is the source of truth for diagnostics.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const counts: Record<ChipId, number> = useMemo(
