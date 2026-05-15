@@ -48,6 +48,12 @@ var routeMapping = map[string]policy.Permission{
 	// the audit-event resource is the persistence shape; inbox is the
 	// product surface).
 	"GET /api/v1/inbox": {Resource: "inbox", Action: "read"},
+
+	// v0.2 Step 6: Home dashboard + rich health status. Both are
+	// read-only aggregations of state the policy layer already gates
+	// via the underlying events/connectors paths.
+	"GET /api/v1/home":          {Resource: "home", Action: "read"},
+	"GET /api/v1/health/status": {Resource: "health", Action: "read"},
 }
 
 // normalizeRoute strips path parameter values to produce a canonical route key.
@@ -77,6 +83,8 @@ var knownSegments = map[string]bool{
 	"approve": true, "deny": true, "connect": true, "disconnect": true,
 	"heartbeat": true, "inbound": true, "outbound": true, "status": true,
 	"healthz": true,
+	// v0.2 Step 3 + Step 6 product surfaces.
+	"inbox": true, "home": true, "health": true,
 }
 
 func looksLikeID(segment string) bool {

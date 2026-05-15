@@ -402,9 +402,15 @@ export const v2 = {
       researchFindings: homeMock.mockResearchFindings,
       events: homeMock.mockInitialEvents,
     }),
+    /**
+     * v0.2 Step 6 wired the live `/api/v1/home` endpoint
+     * (services/gateway/internal/handler/home.go). When
+     * `VITE_API_MODE_HOME=real` the call goes to the gateway; otherwise
+     * the mock object resolves synchronously through the Promise.
+     */
     async load() {
       if (!isRealForRoute("home")) return v2.home.getMock();
-      return get<ReturnType<typeof v2.home.getMock>>("/v2/home");
+      return get<ReturnType<typeof v2.home.getMock>>("/home");
     },
   },
   inbox: {
@@ -459,9 +465,14 @@ export const v2 = {
       healEvents: healthMock.mockHealEvents,
       predictive: healthMock.mockPredictive,
     }),
+    /**
+     * v0.2 Step 6 wired `/api/v1/health/status` to return components
+     * (probed from gateway + db + connectors) plus empty healEvents +
+     * predictive until the self-heal log lands in v0.3+.
+     */
     async load() {
       if (!isRealForRoute("health")) return v2.health.getMock();
-      return get<ReturnType<typeof v2.health.getMock>>("/v2/health");
+      return get<ReturnType<typeof v2.health.getMock>>("/health/status");
     },
   },
   security: {
