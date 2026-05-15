@@ -126,6 +126,21 @@ func Migrate(db *sql.DB) error {
 			seq         INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_gateway_squads_seq ON gateway_squads(seq)`,
+
+		// v0.2 Step 4 — Layer-4 channel policy store. One row per
+		// (channel_id, action). Decision is the canonical pkg/policy
+		// Decision string (`allow` / `deny` / `audit`). Schema is
+		// deliberately narrow; v0.3 adds rate-limit fields via additive
+		// ALTER TABLE migrations rather than reshaping rows.
+		`CREATE TABLE IF NOT EXISTS channel_policies (
+			channel_id  TEXT NOT NULL,
+			action      TEXT NOT NULL,
+			decision    TEXT NOT NULL,
+			reason      TEXT NOT NULL DEFAULT '',
+			created_at  TEXT NOT NULL,
+			PRIMARY KEY (channel_id, action)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_channel_policies_channel ON channel_policies(channel_id)`,
 	}
 
 	tx, err := db.Begin()
