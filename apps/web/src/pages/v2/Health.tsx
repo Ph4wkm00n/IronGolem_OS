@@ -611,11 +611,33 @@ function PredictivePanel({ warnings, openGraphIds, onToggleGraph, onAct }: Predi
 
 export function Health() {
   const HEALTH_MOCK = useMemo(() => api.v2.health.getMock(), []);
-  const [components] = useState<readonly HealthComponent[]>(HEALTH_MOCK.components);
-  const [healEvents] = useState<readonly HealEvent[]>(HEALTH_MOCK.healEvents);
-  const [predictive] = useState<readonly PredictiveWarning[]>(HEALTH_MOCK.predictive);
+  // v0.2 Step 6 — F6 Health real-API. State setters are now exposed so
+  // the useEffect below can swap mock → live values when
+  // VITE_API_MODE_HEALTH=real. In mock mode the call resolves to the
+  // same seed synchronously, so the dispatched setters are no-ops.
+  const [components, setComponents] = useState<readonly HealthComponent[]>(HEALTH_MOCK.components);
+  const [healEvents, setHealEvents] = useState<readonly HealEvent[]>(HEALTH_MOCK.healEvents);
+  const [predictive, setPredictive] = useState<readonly PredictiveWarning[]>(HEALTH_MOCK.predictive);
   const [openGraphIds, setOpenGraphIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.v2.health
+      .load()
+      .then((next) => {
+        if (cancelled) return;
+        setComponents(next.components);
+        setHealEvents(next.healEvents);
+        setPredictive(next.predictive);
+      })
+      .catch(() => {
+        // Mock seed stays visible on real-mode failures.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;

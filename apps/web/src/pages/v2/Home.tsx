@@ -326,7 +326,10 @@ const SCOPE_TONE: Readonly<Record<"scoped" | "broad" | "restricted", ToneName>> 
 type EventsAction =
   | { type: "approve"; id: string }
   | { type: "deny"; id: string }
-  | { type: "reset" };
+  | { type: "reset" }
+  // v0.2 Step 6: full replacement so the real-API useEffect can swap
+  // the mocked seed with the response from GET /api/v1/home.
+  | { type: "replace"; items: EventItem[] };
 
 function eventsReducer(state: EventItem[], action: EventsAction): EventItem[] {
   switch (action.type) {
@@ -350,6 +353,8 @@ function eventsReducer(state: EventItem[], action: EventsAction): EventItem[] {
       );
     case "reset":
       return INITIAL_EVENTS.map((e) => ({ ...e }));
+    case "replace":
+      return action.items.map((e) => ({ ...e }));
   }
 }
 
@@ -1207,6 +1212,31 @@ export function Home() {
   const [drawerEvent, setDrawerEvent] = useState<EventItem | null>(null);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+
+  // v0.2 Step 6 — F6 Home real-API. The non-event fields (workspace,
+  // heartbeat, teams, trust history, safety, research findings) stay
+  // module-level for v0.2 — the backend serves stubs for those today
+  // and the page renders identically either way. The event timeline
+  // IS the most dynamic surface, so we swap it for real audit-trail
+  // events whenever VITE_API_MODE_HOME=real. Mock mode is a no-op
+  // replace (same array), kept unconditional to catch shape drift on
+  // hot-reload — same pattern as the Inbox useEffect from Step 3.
+  useEffect(() => {
+    let cancelled = false;
+    api.v2.home
+      .load()
+      .then((next) => {
+        if (cancelled) return;
+        dispatch({ type: "replace", items: next.events.map((e) => ({ ...e })) as EventItem[] });
+      })
+      .catch(() => {
+        // Mock seed stays visible on real-mode failures; the gateway
+        // log carries the diagnostic.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredEvents = useMemo(
     () => events.filter(FILTER_PREDICATE[filter]),
