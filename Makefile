@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e smoke-telegram
+.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e smoke-telegram smoke-llm
 
 # --- Top-level targets ---
 
@@ -110,3 +110,10 @@ smoke-e2e:
 # sendMessage round-trip matches expectations.
 smoke-telegram:
 	bash scripts/smoke-telegram.sh
+
+# v0.2 Step 5 Gate 6: real Anthropic provider smoke. Requires
+# ANTHROPIC_API_KEY in the env (or as a GitHub secret in CI); skips cleanly
+# (exit 2) when absent. Pinned to claude-haiku-4-5 for cost control;
+# estimated < $0.001 per run.
+smoke-llm:
+	bash scripts/smoke-llm.sh
