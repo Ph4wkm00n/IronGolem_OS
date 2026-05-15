@@ -21,6 +21,7 @@ import (
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/middleware"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/persist"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/planner"
+	gwpolicy "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/policy"
 	gwruntime "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/policy"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
@@ -207,7 +208,11 @@ func main() {
 	// security headers -> rate limit -> request size -> CORS -> logging
 	//   -> auth (HMAC) -> tenant -> policy -> handler.
 	deployMode := middleware.DeploymentMode(envOrDefault("DEPLOYMENT_MODE", "solo"))
-	policyEngine := policy.NewDefaultPolicyEngine(logger)
+	// v0.2 Step 4: wire the SQLite-backed channel-policy store into Layer 4.
+	// An empty store + unset IRONGOLEM_LAYER4_ENABLED keeps the v0.1 disabled
+	// behavior; rules become enforcing as soon as the table has rows.
+	channelPolicyStore := gwpolicy.NewSQLiteChannelPolicyStore(db, logger)
+	policyEngine := policy.NewDefaultPolicyEngineWithStore(logger, channelPolicyStore)
 
 	var finalHandler http.Handler = mux
 	finalHandler = middleware.PolicyMiddleware(policyEngine, logger, eventStore)(finalHandler)
