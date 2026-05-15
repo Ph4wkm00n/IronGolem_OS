@@ -1,0 +1,67 @@
+# Real-LLM CI smoke (v0.2 Step 5 / Gate 6 of Plans/v0.2-foundation.md).
+#
+# Validates the Anthropic provider end-to-end without breaking the
+# default mock path that ci.yml runs. Manual-dispatch + nightly cron.
+# A failure here is NOT a merge blocker — it's the release-criterion
+# gate for tagging v0.2.0.
+#
+# To enable: set the repo secret `ANTHROPIC_API_KEY`. Without it the
+# job skips cleanly (exit 2 → workflow shows "skipped", not "failed").
+name: LLM Smoke
+
+on:
+  # Trigger from the Actions tab.
+  workflow_dispatch:
+
+  # Nightly at 06:00 UTC. Estimated cost < $0.001/run on claude-haiku-4-5.
+  schedule:
+    - cron: "0 6 * * *"
+
+# Don't run on every push — this is an opt-in / time-based gate.
+concurrency:
+  group: llm-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Anthropic provider smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-llm-smoke-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: rust-llm-smoke-${{ runner.os }}-
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/go.sum
+
+      - name: Run smoke-llm
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IRONGOLEM_LLM_MODEL: claude-haiku-4-5-20251001
+        run: |
+          set +e
+          bash scripts/smoke-llm.sh
+          rc=$?
+          # Exit 2 means "skipped, secret missing" — treat as success so the
+          # workflow surfaces as green on forks / first runs without the key.
+          if [ $rc -eq 2 ]; then
+            echo "::notice::smoke-llm skipped — ANTHROPIC_API_KEY not configured"
+            exit 0
+          fi
+          exit $rc
