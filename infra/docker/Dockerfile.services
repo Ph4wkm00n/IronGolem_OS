@@ -1,16 +1,44 @@
-# Gateway-only image for v0.1.
+# Gateway image for v1.1.0 (v0.2 plan complete).
+#
+# Layout: services/go.mod has a `replace` directive (v0.2 Step 1) pointing at
+# ../connectors so the gateway can import the connectors module without
+# pulling it from a registry. The image therefore needs BOTH modules side-
+# by-side under /src so the relative path resolves at build time.
+#
+# Go version: services/go.mod declares `go 1.25.0`; the base image must
+# match or build fails on the toolchain check.
+#
 # Step 7 of the v0.1 plan parked the other six services under
-# services/_deferred/; they will be reintroduced in v0.2 once their behavior
-# is wired into the gateway's runtime client.
-FROM golang:1.22-alpine AS builder
+# services/_deferred/. They return in v0.3+ once their behavior is wired
+# into the gateway runtime client.
+FROM golang:1.25-alpine AS builder
 
-WORKDIR /app
-COPY services/go.mod services/go.sum* ./
+WORKDIR /src
+
+# Copy the sibling connectors module first so services/go.mod's
+# `replace github.com/Ph4wkm00n/IronGolem_OS/connectors => ../connectors`
+# resolves cleanly to /src/connectors.
+COPY connectors/ ./connectors/
+COPY services/ ./services/
+
+WORKDIR /src/services
+
+# Resolve module deps (uses the replace directive — no network fetch for
+# the connectors module). `|| true` keeps the layer cache-friendly when
+# proxy is flaky; the subsequent `go build` will fail loudly if anything
+# is actually missing.
 RUN go mod download || true
 
-COPY services/ .
-
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/irongolem-gateway ./gateway/cmd
+# Three Go binaries land in this image:
+#   gateway          — the HTTP service + runtimed supervisor
+#   mint-token       — HMAC bearer-token helper (smoke + operator tooling)
+#   smoke-telegram   — Gate 4 harness from v0.2 Step 1
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
+        -o /bin/irongolem-gateway ./gateway/cmd \
+ && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
+        -o /bin/irongolem-mint-token ./gateway/cmd/mint-token \
+ && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
+        -o /bin/irongolem-smoke-telegram ./gateway/cmd/smoke-telegram
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
