@@ -46,13 +46,23 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
+          # v0.1 Step 7 parked scheduler/health/defense/research/optimizer/
+          # tenancy/fleet under services/_deferred/; they return in v0.3+
+          # when their behavior gets wired into the gateway. The gateway
+          # ships alongside two operator helpers: mint-token (auth) and
+          # smoke-telegram (the Gate 4 harness from v0.2 Step 1).
           mkdir -p ../dist
           VERSION="${{ github.ref_name }}"
-          for svc in gateway scheduler health defense research optimizer tenancy fleet; do
-            echo "Building ${svc}..."
+          for target in \
+              "gateway:./gateway/cmd" \
+              "mint-token:./gateway/cmd/mint-token" \
+              "smoke-telegram:./gateway/cmd/smoke-telegram"; do
+            name="${target%%:*}"
+            path="${target##*:}"
+            echo "Building ${name} from ${path}..."
             go build -ldflags="-s -w -X main.version=${VERSION}" \
-              -o "../dist/irongolem-${svc}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" \
-              "./${svc}/cmd"
+              -o "../dist/irongolem-${name}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" \
+              "${path}"
           done
           ls -la ../dist/
 
@@ -220,10 +230,15 @@ jobs:
           A self-hosted autonomous assistant platform with self-healing, self-learning,
           auto-research, self-defending, and self-improving capabilities.
 
-          ### Go Service Binaries
+          ### Go Binaries
 
-          Pre-compiled, statically-linked binaries for all 8 services:
-          `gateway`, `scheduler`, `health`, `defense`, `research`, `optimizer`, `tenancy`, `fleet`
+          Pre-compiled, statically-linked binaries for the gateway + operator helpers:
+          `gateway`, `mint-token` (HMAC bearer-token helper), `smoke-telegram` (Gate 4 harness).
+
+          The scheduler/health/defense/research/optimizer/tenancy/fleet services
+          shipped pre-v0.2 are parked under `services/_deferred/` until their
+          behavior gets wired into the gateway runtime client. See `CHANGELOG.md`
+          for the milestone log.
 
           Available for: Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
 
