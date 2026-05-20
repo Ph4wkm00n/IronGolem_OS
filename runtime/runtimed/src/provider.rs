@@ -313,9 +313,13 @@ impl LlmProvider for AnthropicProvider {
             req = req.header(k, v);
         }
 
-        let resp = req.json(&body).send().await.map_err(|e| Error::PlanExecution {
-            reason: format!("anthropic request failed: {e}"),
-        })?;
+        let resp = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::PlanExecution {
+                reason: format!("anthropic request failed: {e}"),
+            })?;
 
         let status = resp.status();
         let raw = resp.text().await.unwrap_or_default();
@@ -436,9 +440,13 @@ impl LlmProvider for OpenAiProvider {
             req = req.header(k, v);
         }
 
-        let resp = req.json(&body).send().await.map_err(|e| Error::PlanExecution {
-            reason: format!("openai request failed: {e}"),
-        })?;
+        let resp = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::PlanExecution {
+                reason: format!("openai request failed: {e}"),
+            })?;
 
         let status = resp.status();
         let raw = resp.text().await.unwrap_or_default();
@@ -511,7 +519,10 @@ mod tests {
         assert_eq!(prof.api_key_env, "ANTHROPIC_API_KEY");
         assert_eq!(prof.base_url, "https://api.anthropic.com/v1");
         assert!(prof.default_headers.contains_key("anthropic-version"));
-        assert!(prof.fallback_models.contains(&"claude-sonnet-4-6".to_string()));
+        assert!(
+            prof.fallback_models
+                .contains(&"claude-sonnet-4-6".to_string())
+        );
     }
 
     #[test]
@@ -569,9 +580,18 @@ mod tests {
         // The IPC wire encodes kind as a lowercase string. Both the
         // settings UI and the gateway dispatch on these strings, so any
         // drift here breaks the cross-language contract.
-        assert_eq!(serde_json::to_string(&ProviderKind::Mock).unwrap(), "\"mock\"");
-        assert_eq!(serde_json::to_string(&ProviderKind::Anthropic).unwrap(), "\"anthropic\"");
-        assert_eq!(serde_json::to_string(&ProviderKind::OpenAi).unwrap(), "\"openai\"");
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::Mock).unwrap(),
+            "\"mock\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::Anthropic).unwrap(),
+            "\"anthropic\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::OpenAi).unwrap(),
+            "\"openai\""
+        );
     }
 
     #[test]

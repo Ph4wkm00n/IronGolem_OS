@@ -7,7 +7,9 @@ use std::sync::Arc;
 use irongolem_core::{Error, ipc::Message};
 use irongolem_runtimed::{
     RealStepExecutor, build_provider,
-    loop_io::{error_response, list_providers_response, ping_response, process_request, write_message},
+    loop_io::{
+        error_response, list_providers_response, ping_response, process_request, write_message,
+    },
     provider::{LlmProvider, ProviderConfig},
 };
 use irongolem_sandbox::LocalSandboxHost;

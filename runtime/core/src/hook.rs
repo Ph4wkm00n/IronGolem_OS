@@ -123,10 +123,22 @@ mod tests {
     #[test]
     fn decision_serializes_lowercase() {
         // Wire format must match the TS string-union exactly.
-        assert_eq!(serde_json::to_string(&HookDecision::Allow).unwrap(), "\"allow\"");
-        assert_eq!(serde_json::to_string(&HookDecision::Deny).unwrap(), "\"deny\"");
-        assert_eq!(serde_json::to_string(&HookDecision::Modify).unwrap(), "\"modify\"");
-        assert_eq!(serde_json::to_string(&HookDecision::Observe).unwrap(), "\"observe\"");
+        assert_eq!(
+            serde_json::to_string(&HookDecision::Allow).unwrap(),
+            "\"allow\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HookDecision::Deny).unwrap(),
+            "\"deny\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HookDecision::Modify).unwrap(),
+            "\"modify\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HookDecision::Observe).unwrap(),
+            "\"observe\""
+        );
     }
 
     #[test]

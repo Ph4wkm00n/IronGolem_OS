@@ -87,9 +87,9 @@ pub struct Shutdown {
 ///
 /// The payload is intentionally empty (only `request_id`) so the wire
 /// shape mirrors `PingRequest`. The response carries the active profile
-/// + every other profile the binary knows how to instantiate, so the
-/// settings UI can render "currently active" and "available" without a
-/// separate query.
+/// alongside every other profile the binary knows how to instantiate,
+/// so the settings UI can render "currently active" and "available"
+/// without a separate query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListProvidersRequest {
     pub request_id: Uuid,
