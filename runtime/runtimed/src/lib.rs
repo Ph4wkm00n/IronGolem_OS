@@ -8,4 +8,7 @@ pub mod provider;
 
 pub use executor::RealStepExecutor;
 pub use loop_io::{ProcessResult, process_request};
-pub use provider::{LlmProvider, MockProvider, ProviderConfig, build_provider};
+pub use provider::{
+    AnthropicProvider, AuthType, LlmProvider, MockProvider, OpenAiProvider, ProviderConfig,
+    ProviderKind, ProviderProfile, all_known_profiles, build_provider,
+};

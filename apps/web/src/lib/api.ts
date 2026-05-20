@@ -286,6 +286,8 @@ import * as memoryMock from "../_mocks/memory";
 import * as healthMock from "../_mocks/health";
 import * as securityMock from "../_mocks/security";
 import * as settingsMock from "../_mocks/settings";
+import * as commitmentsMock from "../_mocks/commitments";
+import * as auditMock from "../_mocks/audit";
 
 export type {
   EventItem,
@@ -381,7 +383,18 @@ export type {
  * (Inbox first, then Health, then Home). We don't want flipping Inbox to real
  * to also flip Recipes/Research/Memory — those stay on mocks until v0.2.
  */
-type V2Route = "home" | "inbox" | "recipes" | "research" | "memory" | "health" | "security" | "settings";
+type V2Route =
+  | "home"
+  | "inbox"
+  | "recipes"
+  | "research"
+  | "memory"
+  | "health"
+  | "security"
+  | "settings"
+  // v0.3 Step 7
+  | "commitments"
+  | "audit";
 
 function isRealForRoute(route: V2Route): boolean {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -500,7 +513,47 @@ export const v2 = {
       return get<ReturnType<typeof v2.settings.getMock>>("/v2/settings");
     },
   },
+  // v0.3 Step 7 — Commitments page.
+  commitments: {
+    getMock: () => commitmentsMock.mockCommitments,
+    async list(): Promise<readonly commitmentsMock.Commitment[]> {
+      if (!isRealForRoute("commitments")) return v2.commitments.getMock();
+      const envelope = await get<{
+        items: readonly commitmentsMock.Commitment[];
+      }>("/v2/commitments");
+      return envelope.items;
+    },
+    async dismiss(id: string): Promise<void> {
+      if (!isRealForRoute("commitments")) return;
+      await post(`/v2/commitments/${id}/dismiss`, {});
+    },
+    async snooze(id: string, untilMs: number): Promise<void> {
+      if (!isRealForRoute("commitments")) return;
+      await post(`/v2/commitments/${id}/snooze`, { until_ms: untilMs });
+    },
+  },
+  // v0.3 Step 7 — Audit findings page.
+  audit: {
+    getMock: () => auditMock.mockAuditFindings,
+    async findings(): Promise<readonly auditMock.AuditFinding[]> {
+      if (!isRealForRoute("audit")) return v2.audit.getMock();
+      const envelope = await get<{
+        items: readonly auditMock.AuditFinding[];
+      }>("/v2/audit/findings");
+      return envelope.items;
+    },
+  },
 } as const;
+
+// Re-export the wire types so pages don't have to reach into _mocks/*.
+export type {
+  Commitment,
+  CommitmentKind,
+  CommitmentSensitivity,
+  CommitmentStatus,
+  DueWindow,
+} from "../_mocks/commitments";
+export type { AuditFinding, AuditSeverity } from "../_mocks/audit";
 
 /** Aggregate API namespace. */
 export const api = {

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use irongolem_core::{
     Error,
     ipc::{
-        EventNotification, ExecutePlanRequest, ExecutePlanResponse, ExecutionStatus, Message,
-        PingRequest, PingResponse,
+        EventNotification, ExecutePlanRequest, ExecutePlanResponse, ExecutionStatus,
+        ListProvidersRequest, ListProvidersResponse, Message, PingRequest, PingResponse,
     },
 };
 use irongolem_workflow::PlanEngine;
@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::executor::RealStepExecutor;
+use crate::provider::{LlmProvider, all_known_profiles};
 
 /// Result for the test harness: what was emitted in order while handling a
 /// request, paired with the terminal response.
@@ -100,6 +101,24 @@ pub fn ping_response(req: &PingRequest) -> PingResponse {
     }
 }
 
+/// Build the response for a ListProviders. The active provider is the
+/// one the binary booted with; the profile list covers every provider
+/// the binary can instantiate so the UI can render available choices.
+pub fn list_providers_response(
+    req: &ListProvidersRequest,
+    active: &dyn LlmProvider,
+) -> Result<ListProvidersResponse, Error> {
+    let profiles = all_known_profiles()
+        .into_iter()
+        .map(|p| serde_json::to_value(&p).map_err(Error::from))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ListProvidersResponse {
+        request_id: req.request_id,
+        active: active.profile().name.clone(),
+        profiles,
+    })
+}
+
 /// Build a synthetic ExecutePlanResponse for an internal failure (e.g. a
 /// malformed request that couldn't even be parsed). Used by the I/O loop
 /// when no valid request_id is available; pass `Uuid::nil()` as a fallback.
@@ -128,10 +147,29 @@ mod tests {
     fn make_executor() -> Arc<RealStepExecutor> {
         Arc::new(RealStepExecutor::new(
             Arc::new(LocalSandboxHost::with_builtins()),
-            Arc::new(MockProvider {
-                response: "pong".into(),
-            }),
+            Arc::new(MockProvider::new("pong")),
         ))
+    }
+
+    #[test]
+    fn list_providers_response_carries_active_and_all_profiles() {
+        // v0.3 Step 3 — the IPC verb must surface the active provider name
+        // plus every profile the binary knows how to instantiate. Settings
+        // UI uses this for "currently active / available" rendering.
+        let mock = MockProvider::new("pong");
+        let req = ListProvidersRequest {
+            request_id: Uuid::nil(),
+        };
+        let resp = list_providers_response(&req, &mock).expect("response builds");
+        assert_eq!(resp.active, "mock");
+        let names: Vec<String> = resp
+            .profiles
+            .iter()
+            .map(|v| v["name"].as_str().unwrap_or("?").to_string())
+            .collect();
+        assert!(names.contains(&"mock".to_string()));
+        assert!(names.contains(&"anthropic".to_string()));
+        assert!(names.contains(&"openai".to_string()));
     }
 
     #[tokio::test]

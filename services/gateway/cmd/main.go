@@ -16,6 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/audit"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/audit/probes"
+	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/commitments"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/connector"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/handler"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/middleware"
@@ -25,6 +28,16 @@ import (
 	gwruntime "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/policy"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
+
+	// Blank imports: each connector subpackage's init() self-registers
+	// in the connectors registry. v0.3 Step 1 introduced this; new
+	// connectors land here AND in services/gateway/cmd/doctor/main.go.
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/discord"
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/email"
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/signal"
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/slack"
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/telegram"
+	_ "github.com/Ph4wkm00n/IronGolem_OS/connectors/webhook"
 )
 
 func main() {
@@ -150,6 +163,53 @@ func main() {
 	inboxHandler := handler.NewInboxHandler(logger, eventStore)
 	homeHandler := handler.NewHomeHandler(logger, eventStore, connMgr, db)
 	healthStatusHandler := handler.NewHealthStatusHandler(logger, connMgr, db)
+	// v0.3 Step 3 — provider listing surfaces the active LLM provider +
+	// every profile runtimed knows about for the settings UI.
+	providerHandler := handler.NewProviderHandler(logger, runtimeClient)
+
+	// v0.3 Step 5 — Audit probe subsystem. The registry is constructed
+	// here (rather than as a package global) so tests can spin up an
+	// isolated runtime without touching live probe state.
+	auditRegistry := audit.NewRegistry()
+	auditRegistry.MustRegister(probes.NewWorkspaceSkillEscape())
+	auditRegistry.MustRegister(probes.NewTrustModel())
+	auditRegistry.MustRegister(probes.NewChannelDMPolicy(db))
+	auditRegistry.MustRegister(probes.NewConnectorHealthDrift())
+	auditFindingStore := audit.NewSQLiteFindingStore(db)
+	auditEmitter := handler.NewAuditFindingEmitter(eventStore)
+	auditRuntime := audit.NewRuntime(auditRegistry, auditFindingStore, auditEmitter, logger, audit.RuntimeConfig{})
+	auditCtx, auditCancel := context.WithCancel(context.Background())
+	go auditRuntime.Run(auditCtx)
+	auditFindingsHandler := handler.NewAuditFindingsHandler(auditFindingStore, logger)
+
+	// v0.3 Step 4 — Commitments subsystem. The extractor is a heuristic
+	// (regex + keyword) shipping in v0.3; a future LLM extractor lands
+	// when runtimed exposes a direct-LLM IPC verb. The dispatcher fires
+	// reminders through the connector manager's new SendOutbound path.
+	commitmentsStore := commitments.NewSQLiteStore(db)
+	commitmentsExtractor := commitments.NewHeuristicExtractor()
+	commitmentsDispatcher := handler.NewCommitmentDispatcher(connMgr, logger)
+	commitmentsEmitter := handler.NewCommitmentEventEmitter(eventStore)
+	commitmentsRuntime := commitments.NewRuntime(commitmentsStore, commitmentsDispatcher, commitmentsEmitter, logger, commitments.RuntimeConfig{})
+	commitmentsCtx, commitmentsCancel := context.WithCancel(context.Background())
+	go commitmentsRuntime.Run(commitmentsCtx)
+	commitmentsHandler := handler.NewCommitmentsHandler(commitmentsStore, logger)
+
+	// Hook into the inbound flow: every successful assistant reply
+	// kicks off an async extraction. The reply path can't block on
+	// extractor + DB latency, so we run it in its own goroutine.
+	h.SetPostReplyHook(func(ctx context.Context, msg planner.InboundMessage, reply, inboundEventID string) {
+		go commitmentsRuntime.Enqueue(context.Background(), commitmentsExtractor, commitments.Turn{
+			UserText:      msg.Content,
+			AssistantText: reply,
+			WorkspaceID:   msg.WorkspaceID,
+			TenantID:      msg.TenantID,
+			SourceEventID: inboundEventID,
+			ConnectorID:   msg.ConnectorID,
+			ChannelID:     msg.ChannelID,
+			UserID:        msg.UserID,
+		})
+	})
 
 	mux := http.NewServeMux()
 
@@ -196,6 +256,18 @@ func main() {
 	// v0.2 Step 6: home dashboard + rich health status.
 	mux.HandleFunc("GET /api/v1/home", homeHandler.ListHome)
 	mux.HandleFunc("GET /api/v1/health/status", healthStatusHandler.GetStatus)
+
+	// v0.3 Step 3: provider listing for the settings UI.
+	mux.HandleFunc("GET /api/v1/providers", providerHandler.ListProviders)
+
+	// v0.3 Step 5: audit probe findings for the v2 Audit page.
+	mux.HandleFunc("GET /api/v2/audit/findings", auditFindingsHandler.ListFindings)
+
+	// v0.3 Step 4: commitments lifecycle endpoints.
+	mux.HandleFunc("GET /api/v2/commitments", commitmentsHandler.ListCommitments)
+	mux.HandleFunc("POST /api/v2/commitments/{id}/dismiss", commitmentsHandler.DismissCommitment)
+	mux.HandleFunc("POST /api/v2/commitments/{id}/snooze", commitmentsHandler.SnoozeCommitment)
+	mux.HandleFunc("DELETE /api/v2/commitments/{id}", commitmentsHandler.DeleteCommitment)
 
 	// HMAC token authentication. The secret comes from IRONGOLEM_HMAC_SECRET
 	// and is required at boot — fail-closed per Step 7 of the v0.1 plan
@@ -265,6 +337,12 @@ func main() {
 	}
 
 	connMgr.DisconnectAll()
+
+	// v0.3 Step 5 — stop the audit ticker. Bounded by the surrounding
+	// shutdownCtx; the runtime's Run() returns promptly on cancel.
+	auditCancel()
+	// v0.3 Step 4 — stop the commitments ticker.
+	commitmentsCancel()
 
 	// Tell runtimed to drain in-flight work, then signal the supervisor
 	// to stop trying to keep it alive. Bounded so a hung child can't

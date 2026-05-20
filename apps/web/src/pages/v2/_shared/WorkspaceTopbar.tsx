@@ -83,8 +83,9 @@ const DEFAULT_WORKSPACE: WorkspaceMeta = {
 const NAV_ITEMS: ReadonlyArray<{ readonly label: string; readonly to?: string }> = [
   { label: "Workspace", to: "/" },
   { label: "Inbox", to: "/inbox" },
-  { label: "Timeline" },
-  { label: "Teams" },
+  // v0.3 Step 7 — Commitments + Audit nav entries.
+  { label: "Commitments", to: "/commitments" },
+  { label: "Audit", to: "/audit" },
   { label: "Research", to: "/research" },
   { label: "Rules", to: "/security" },
 ];

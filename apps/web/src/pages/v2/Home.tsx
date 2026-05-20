@@ -14,6 +14,8 @@
 
 import React, { useEffect, useMemo, useReducer, useState } from "react";
 
+import { RouteError } from "../../components/RouteError";
+import { useRouteData } from "../../lib/route-data";
 import { WorkspaceTopbar } from "./_shared/WorkspaceTopbar";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1213,30 +1215,28 @@ export function Home() {
   const [policyOpen, setPolicyOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  // v0.2 Step 6 — F6 Home real-API. The non-event fields (workspace,
-  // heartbeat, teams, trust history, safety, research findings) stay
-  // module-level for v0.2 — the backend serves stubs for those today
-  // and the page renders identically either way. The event timeline
-  // IS the most dynamic surface, so we swap it for real audit-trail
-  // events whenever VITE_API_MODE_HOME=real. Mock mode is a no-op
-  // replace (same array), kept unconditional to catch shape drift on
-  // hot-reload — same pattern as the Inbox useEffect from Step 3.
+  // v0.2 Step 6 / v0.3 Step 6 — F6 Home real-API. The non-event fields
+  // (workspace, heartbeat, teams, trust history, safety, research
+  // findings) stay module-level for v0.2 — the backend serves stubs for
+  // those today and the page renders identically either way. The event
+  // timeline IS the most dynamic surface, so we swap it for real audit-
+  // trail events whenever VITE_API_MODE_HOME=real.
+  //
+  // v0.3 wraps the load in `useRouteData()` so a real-mode failure is
+  // surfaced via `<RouteError>` instead of silently keeping the mock
+  // seed. Mock mode resolves synchronously with the seed, so the error
+  // branch never fires there.
+  const homeLoad = useRouteData({
+    initialData: HOME_MOCK,
+    load: () => api.v2.home.load(),
+  });
   useEffect(() => {
-    let cancelled = false;
-    api.v2.home
-      .load()
-      .then((next) => {
-        if (cancelled) return;
-        dispatch({ type: "replace", items: next.events.map((e) => ({ ...e })) as EventItem[] });
-      })
-      .catch(() => {
-        // Mock seed stays visible on real-mode failures; the gateway
-        // log carries the diagnostic.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (homeLoad.status !== "ok" || homeLoad.data == null) return;
+    dispatch({
+      type: "replace",
+      items: homeLoad.data.events.map((e) => ({ ...e })) as EventItem[],
+    });
+  }, [homeLoad.status, homeLoad.data]);
 
   const filteredEvents = useMemo(
     () => events.filter(FILTER_PREDICATE[filter]),
@@ -1271,6 +1271,23 @@ export function Home() {
     dispatch({ type: "deny", id: ev.id });
     setToast({ kind: "denied", title: ev.title });
   };
+
+  // v0.3 Step 6 — surface real-mode load failures explicitly. Mock-mode
+  // failures fall through (the mock seed resolves synchronously), so
+  // this branch only fires when VITE_API_MODE_HOME=real and the gateway
+  // returned an error.
+  if (homeLoad.status === "error") {
+    return (
+      <div className="min-h-screen bg-neutral-50">
+        <WorkspaceTopbar onResetDemo={() => dispatch({ type: "reset" })} />
+        <RouteError
+          route="Home"
+          error={homeLoad.error}
+          onRetry={homeLoad.reload}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50">

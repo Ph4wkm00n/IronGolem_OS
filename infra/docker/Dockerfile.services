@@ -29,16 +29,21 @@ WORKDIR /src/services
 # is actually missing.
 RUN go mod download || true
 
-# Three Go binaries land in this image:
+# Four Go binaries land in this image:
 #   gateway          — the HTTP service + runtimed supervisor
 #   mint-token       — HMAC bearer-token helper (smoke + operator tooling)
 #   smoke-telegram   — Gate 4 harness from v0.2 Step 1
+#   doctor           — v0.3 Step 1: connector readiness check (iterates the
+#                      package-level registration registry from
+#                      connectors/registry.go and prints per-connector status)
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
         -o /bin/irongolem-gateway ./gateway/cmd \
  && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
         -o /bin/irongolem-mint-token ./gateway/cmd/mint-token \
  && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
-        -o /bin/irongolem-smoke-telegram ./gateway/cmd/smoke-telegram
+        -o /bin/irongolem-smoke-telegram ./gateway/cmd/smoke-telegram \
+ && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" \
+        -o /bin/irongolem-doctor ./gateway/cmd/doctor
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates

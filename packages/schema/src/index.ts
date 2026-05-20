@@ -5,5 +5,7 @@
  */
 
 export * from "./events";
+export * from "./hooks";
 export * from "./models";
 export * from "./policy";
+export * from "./provider";

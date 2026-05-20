@@ -72,9 +72,10 @@ type pendingRequest struct {
 }
 
 type terminalResponse struct {
-	execute *ipc.ExecutePlanResponse
-	ping    *ipc.PingResponse
-	err     error
+	execute       *ipc.ExecutePlanResponse
+	ping          *ipc.PingResponse
+	listProviders *ipc.ListProvidersResponse // v0.3 Step 3
+	err           error
 }
 
 // Client owns the runtimed child process and the IPC plumbing.
@@ -352,6 +353,14 @@ func (c *Client) runReader(stdout io.ReadCloser) {
 			}
 			c.deliverTerminal(resp.RequestID, terminalResponse{ping: &resp})
 
+		case ipc.KindListProvidersResponse:
+			var resp ipc.ListProvidersResponse
+			if err := json.Unmarshal(line, &resp); err != nil {
+				c.logger.Warn("bad list_providers response", slog.String("error", err.Error()))
+				continue
+			}
+			c.deliverTerminal(resp.RequestID, terminalResponse{listProviders: &resp})
+
 		default:
 			c.logger.Warn("unknown message kind", slog.String("kind", env.Kind))
 		}
@@ -522,6 +531,57 @@ func (c *Client) Ping(ctx context.Context) error {
 	case <-ctx.Done():
 		c.unregister(reqID)
 		return ctx.Err()
+	}
+}
+
+// ListProviders sends a ListProvidersRequest and returns once runtimed
+// responds. Mirrors Ping's shape — no events, single terminal response.
+// v0.3 Step 3 of Plans/modular-puzzling-blum.md.
+func (c *Client) ListProviders(ctx context.Context) (*ipc.ListProvidersResponse, error) {
+	if !c.acceptingWork() {
+		return nil, ErrRuntimeUnavailable
+	}
+	// Reuse the ping timeout — this is a cheap synchronous call, the
+	// runtime is doing no work beyond serializing a static list.
+	if c.cfg.PingTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.cfg.PingTimeout)
+		defer cancel()
+	}
+
+	reqID := c.newID()
+	pr := &pendingRequest{
+		kind: ipc.KindListProvidersRequest,
+		done: make(chan terminalResponse, 1),
+	}
+	if err := c.register(reqID, pr); err != nil {
+		return nil, err
+	}
+
+	req := ipc.ListProvidersRequest{Kind: ipc.KindListProvidersRequest, RequestID: reqID}
+	body, err := json.Marshal(req)
+	if err != nil {
+		c.unregister(reqID)
+		return nil, fmt.Errorf("runtime: marshal list_providers: %w", err)
+	}
+
+	if err := c.send(ctx, body); err != nil {
+		c.unregister(reqID)
+		return nil, err
+	}
+
+	select {
+	case t := <-pr.done:
+		if t.err != nil {
+			return nil, t.err
+		}
+		if t.listProviders == nil || t.listProviders.RequestID != reqID {
+			return nil, errors.New("runtime: list_providers response mismatch")
+		}
+		return t.listProviders, nil
+	case <-ctx.Done():
+		c.unregister(reqID)
+		return nil, ctx.Err()
 	}
 }
 

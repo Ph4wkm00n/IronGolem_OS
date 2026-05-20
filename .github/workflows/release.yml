@@ -49,14 +49,16 @@ jobs:
           # v0.1 Step 7 parked scheduler/health/defense/research/optimizer/
           # tenancy/fleet under services/_deferred/; they return in v0.3+
           # when their behavior gets wired into the gateway. The gateway
-          # ships alongside two operator helpers: mint-token (auth) and
-          # smoke-telegram (the Gate 4 harness from v0.2 Step 1).
+          # ships alongside three operator helpers: mint-token (auth),
+          # smoke-telegram (the Gate 4 harness from v0.2 Step 1), and
+          # doctor (v0.3 Step 1 — connector readiness probe).
           mkdir -p ../dist
           VERSION="${{ github.ref_name }}"
           for target in \
               "gateway:./gateway/cmd" \
               "mint-token:./gateway/cmd/mint-token" \
-              "smoke-telegram:./gateway/cmd/smoke-telegram"; do
+              "smoke-telegram:./gateway/cmd/smoke-telegram" \
+              "doctor:./gateway/cmd/doctor"; do
             name="${target%%:*}"
             path="${target##*:}"
             echo "Building ${name} from ${path}..."
@@ -233,7 +235,8 @@ jobs:
           ### Go Binaries
 
           Pre-compiled, statically-linked binaries for the gateway + operator helpers:
-          `gateway`, `mint-token` (HMAC bearer-token helper), `smoke-telegram` (Gate 4 harness).
+          `gateway`, `mint-token` (HMAC bearer-token helper), `smoke-telegram` (Gate 4 harness),
+          `doctor` (v0.3 Step 1 — connector readiness probe).
 
           The scheduler/health/defense/research/optimizer/tenancy/fleet services
           shipped pre-v0.2 are parked under `services/_deferred/` until their

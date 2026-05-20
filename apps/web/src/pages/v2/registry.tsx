@@ -10,9 +10,21 @@
  * hits `/` doesn't download Memory + Security + Settings on first load.
  * Each `import("./X").then((m) => ({ default: m.X }))` adapts the named
  * export to the `{ default: Component }` shape `React.lazy` requires.
+ *
+ * v0.3 Step 6 — every lazy component is wrapped in a `RouteErrorBoundary`
+ * so a crash inside one v2 route only takes down that route, not the
+ * entire app. The wrap is centralised here so new entries inherit the
+ * safety net automatically.
  */
 
-import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import React, {
+  Fragment,
+  lazy,
+  type ComponentType,
+  type LazyExoticComponent,
+} from "react";
+
+import { RouteErrorBoundary } from "../../components/RouteErrorBoundary";
 
 const HomeLazy = lazy(() => import("./Home").then((m) => ({ default: m.Home })));
 const InboxLazy = lazy(() => import("./Inbox").then((m) => ({ default: m.Inbox })));
@@ -22,20 +34,56 @@ const MemoryLazy = lazy(() => import("./Memory").then((m) => ({ default: m.Memor
 const HealthLazy = lazy(() => import("./Health").then((m) => ({ default: m.Health })));
 const SecurityLazy = lazy(() => import("./Security").then((m) => ({ default: m.Security })));
 const SettingsLazy = lazy(() => import("./Settings").then((m) => ({ default: m.Settings })));
+const CommitmentsLazy = lazy(() => import("./Commitments").then((m) => ({ default: m.Commitments })));
+const AuditLazy = lazy(() => import("./Audit").then((m) => ({ default: m.Audit })));
+
+/**
+ * Wrap a lazy route in a `RouteErrorBoundary` keyed by route name so
+ * each gets its own scoped fallback UI (one crash doesn't propagate).
+ * The wrapper is a plain `ComponentType` so the App.tsx Routes still
+ * render it directly inside `<Suspense>`.
+ */
+function withBoundary(
+  name: string,
+  Inner: LazyExoticComponent<ComponentType>,
+): ComponentType {
+  const Wrapped: ComponentType = () => (
+    <RouteErrorBoundary route={name}>
+      <Fragment>
+        <Inner />
+      </Fragment>
+    </RouteErrorBoundary>
+  );
+  Wrapped.displayName = `WithBoundary(${name})`;
+  return Wrapped;
+}
+
+const HomeWithBoundary = withBoundary("Home", HomeLazy);
+const InboxWithBoundary = withBoundary("Inbox", InboxLazy);
+const RecipesWithBoundary = withBoundary("Recipes", RecipesLazy);
+const ResearchWithBoundary = withBoundary("Research", ResearchLazy);
+const MemoryWithBoundary = withBoundary("Memory", MemoryLazy);
+const HealthWithBoundary = withBoundary("Health", HealthLazy);
+const SecurityWithBoundary = withBoundary("Security", SecurityLazy);
+const SettingsWithBoundary = withBoundary("Settings", SettingsLazy);
+const CommitmentsWithBoundary = withBoundary("Commitments", CommitmentsLazy);
+const AuditWithBoundary = withBoundary("Audit", AuditLazy);
 
 /**
  * Map of route path → lazy v2 component. Consumers must render results
  * inside a `<React.Suspense>` boundary (App.tsx does this).
  */
-export const V2_ROUTE_REGISTRY: Readonly<Record<string, LazyExoticComponent<ComponentType>>> = Object.freeze({
-  "/": HomeLazy,
-  "/inbox": InboxLazy,
-  "/recipes": RecipesLazy,
-  "/research": ResearchLazy,
-  "/memory": MemoryLazy,
-  "/health": HealthLazy,
-  "/security": SecurityLazy,
-  "/settings": SettingsLazy,
+export const V2_ROUTE_REGISTRY: Readonly<Record<string, ComponentType>> = Object.freeze({
+  "/": HomeWithBoundary,
+  "/inbox": InboxWithBoundary,
+  "/recipes": RecipesWithBoundary,
+  "/research": ResearchWithBoundary,
+  "/memory": MemoryWithBoundary,
+  "/health": HealthWithBoundary,
+  "/security": SecurityWithBoundary,
+  "/settings": SettingsWithBoundary,
+  "/commitments": CommitmentsWithBoundary,
+  "/audit": AuditWithBoundary,
 });
 
 /**

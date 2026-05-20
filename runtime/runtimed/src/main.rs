@@ -7,8 +7,8 @@ use std::sync::Arc;
 use irongolem_core::{Error, ipc::Message};
 use irongolem_runtimed::{
     RealStepExecutor, build_provider,
-    loop_io::{error_response, ping_response, process_request, write_message},
-    provider::ProviderConfig,
+    loop_io::{error_response, list_providers_response, ping_response, process_request, write_message},
+    provider::{LlmProvider, ProviderConfig},
 };
 use irongolem_sandbox::LocalSandboxHost;
 use tokio::io::{AsyncBufReadExt, BufReader, stdin, stdout};
@@ -30,9 +30,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider_cfg = ProviderConfig::from_env();
     info!(provider = ?provider_cfg.kind, "runtimed starting");
 
+    // v0.3 Step 3: keep a handle to the active provider so the
+    // `ListProviders` IPC verb can return its profile name without
+    // reaching back into the executor's internal state.
+    let provider: Arc<dyn LlmProvider> = build_provider(provider_cfg);
     let executor = Arc::new(RealStepExecutor::new(
         Arc::new(LocalSandboxHost::with_builtins()),
-        build_provider(provider_cfg),
+        Arc::clone(&provider),
     ));
 
     let stdin_reader = BufReader::new(stdin());
@@ -87,6 +91,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let resp = ping_response(&req);
                 if let Err(e) = write_message(&stdout_writer, &Message::PingResponse(resp)).await {
                     error!(error = %e, "ping response write failed");
+                }
+            }
+            Message::ListProvidersRequest(req) => {
+                match list_providers_response(&req, provider.as_ref()) {
+                    Ok(resp) => {
+                        if let Err(e) =
+                            write_message(&stdout_writer, &Message::ListProvidersResponse(resp))
+                                .await
+                        {
+                            error!(error = %e, "list_providers response write failed");
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "list_providers response build failed");
+                    }
                 }
             }
             Message::Shutdown(_) => {
