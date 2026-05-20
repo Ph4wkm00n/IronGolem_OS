@@ -68,6 +68,18 @@ const (
 	EventKindApprovalApproved  EventKind = "approval.approved"
 	EventKindApprovalDenied    EventKind = "approval.denied"
 	EventKindApprovalExpired   EventKind = "approval.expired"
+
+	// v0.3 Step 5 — audit probe findings. Emitted by the audit
+	// runtime for non-info findings (warning + critical). info
+	// findings are stored but not emitted to the timeline.
+	EventKindAuditFinding EventKind = "audit.finding"
+
+	// v0.3 Step 4 — commitments lifecycle.
+	EventKindCommitmentExtracted EventKind = "commitment.extracted"
+	EventKindCommitmentFired     EventKind = "commitment.fired"
+	EventKindCommitmentDismissed EventKind = "commitment.dismissed"
+	EventKindCommitmentSnoozed   EventKind = "commitment.snoozed"
+	EventKindCommitmentExpired   EventKind = "commitment.expired"
 )
 
 // HeartbeatStatus represents the health state of a service or agent.

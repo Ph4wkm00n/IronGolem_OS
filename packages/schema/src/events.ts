@@ -39,7 +39,11 @@ export type EventKind =
   | "recipe-activated"
   | "recipe-deactivated"
   | "memory-updated"
-  | "checkpoint-created";
+  | "checkpoint-created"
+  // v0.3 Step 5 — emitted by the audit-probe runtime for any
+  // non-info finding (warning + critical). info findings are stored
+  // but don't pollute the timeline.
+  | "audit-finding";
 
 /** Base event envelope — every persisted event has these fields. */
 export interface Event<K extends EventKind = EventKind, P = unknown> {
@@ -103,6 +107,22 @@ export interface SquadHandoffPayload {
   readonly reason: string;
 }
 
+/** v0.3 Step 5 — severity tag for audit-finding events.
+ *  Matches `audit.Severity` on the Go side exactly. */
+export type AuditFindingSeverity = "info" | "warning" | "critical";
+
+/** v0.3 Step 5 — payload of an `audit-finding` event. The probe ID is
+ *  the stable wire identifier of the probe that produced the finding;
+ *  the UI groups findings by it. `evidence` is an arbitrary structured
+ *  bag the UI renders as a key/value table on drilldown. */
+export interface AuditFindingPayload {
+  readonly findingId: string;
+  readonly probeId: string;
+  readonly severity: AuditFindingSeverity;
+  readonly reason: string;
+  readonly evidence?: Record<string, unknown>;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Convenience aliases                                                */
 /* ------------------------------------------------------------------ */
@@ -113,3 +133,4 @@ export type ActionBlockedEvent = Event<"action-blocked", ActionBlockedPayload>;
 export type HeartbeatEvent = Event<"heartbeat", HeartbeatPayload>;
 export type ResearchUpdateEvent = Event<"research-update", ResearchUpdatePayload>;
 export type SquadHandoffEvent = Event<"squad-handoff", SquadHandoffPayload>;
+export type AuditFindingEvent = Event<"audit-finding", AuditFindingPayload>;

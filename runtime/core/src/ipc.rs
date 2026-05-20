@@ -30,6 +30,11 @@ pub enum Message {
     PingRequest(PingRequest),
     #[serde(rename = "ping_response")]
     PingResponse(PingResponse),
+    /// v0.3 Step 3 — gateway asks runtimed to enumerate provider profiles.
+    #[serde(rename = "list_providers_request")]
+    ListProvidersRequest(ListProvidersRequest),
+    #[serde(rename = "list_providers_response")]
+    ListProvidersResponse(ListProvidersResponse),
     #[serde(rename = "shutdown")]
     Shutdown(Shutdown),
 }
@@ -76,6 +81,32 @@ pub struct PingResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Shutdown {
     pub request_id: Uuid,
+}
+
+/// v0.3 Step 3 — request: enumerate provider profiles known to runtimed.
+///
+/// The payload is intentionally empty (only `request_id`) so the wire
+/// shape mirrors `PingRequest`. The response carries the active profile
+/// alongside every other profile the binary knows how to instantiate,
+/// so the settings UI can render "currently active" and "available"
+/// without a separate query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProvidersRequest {
+    pub request_id: Uuid,
+}
+
+/// v0.3 Step 3 — response. Profiles arrive as opaque `serde_json::Value`
+/// so `core` doesn't have to depend on the provider crate; the gateway
+/// passes the payload straight through to the HTTP client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProvidersResponse {
+    pub request_id: Uuid,
+    /// `name` field of the active provider (e.g. "anthropic"). Matches
+    /// `ProviderKind` serialized lowercase form.
+    pub active: String,
+    /// Every known profile, including the active one. Order is stable
+    /// across calls so the UI doesn't shuffle the list on refresh.
+    pub profiles: Vec<serde_json::Value>,
 }
 
 /// Terminal status of a plan execution.

@@ -6,6 +6,83 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
+## v0.3 — Adoption + Hardening
+
+Plan: [`Plans/modular-puzzling-blum.md`](Plans/modular-puzzling-blum.md). Source-code comparison vs `openclaw/openclaw` (TS, 1.22M LOC) and `NousResearch/hermes-agent` (Python, 822K LOC) surfaced seven architectural patterns worth adopting and ten distinct weaknesses to track. v0.3 absorbs the highest-leverage patterns into IronGolem's three-domain split while hardening the frontend's silent-fail patterns inherited from v0.2.
+
+### Step 1 — Connector registration extension
+
+Adopts hermes `gateway/platform_registry.py:PlatformEntry`. Extends connector registration with `CheckFn` / `RequiredEnv` / `InstallHint` / `ValidateConfig` so doctor + setup-wizard UX work without per-connector special cases.
+
+- **`connectors/registry.go`** — package-level `Registration` struct + thread-safe registry (`Register` / `MustRegister` / `Get` / `List`).
+- **`connectors/{telegram,email,webhook}/metadata.go`** — each connector self-registers via `init()`.
+- **`services/gateway/cmd/doctor/main.go`** — operator binary. Text + JSON output, exit-code-on-failure. Built into the Docker image and the release matrix alongside `mint-token` and `smoke-telegram`.
+
+### Step 2 — Hook decision types schema
+
+Adopts openclaw `src/plugins/hook-decision-types.ts`. Locks in the `Allow | Deny | Modify | Observe` taxonomy ahead of any plugin system.
+
+- **`packages/schema/src/hooks.ts`** + **`runtime/core/src/hook.rs`** — `HookDecision` / `HookPhase` / `HookContext` / `HookResult` aligned across Rust and TS. 5 unit tests cover short-circuit behavior, label drift, wire-format lowercase serialization, kebab-case phases.
+
+### Step 3 — ProviderProfile + OpenAI as Profile #2
+
+Adopts hermes `providers/base.py:ProviderProfile`. Lifts the hardcoded-Anthropic seam into declarative profiles BEFORE a second provider lands.
+
+- **`runtime/runtimed/src/provider.rs`** — new `ProviderProfile` (name, display_name, auth_type, base_url, default_headers, fixed_temperature, default_max_tokens, fallback_models, api_key_env). Refactored `AnthropicProvider` to carry a profile. Added `OpenAiProvider` (`/v1/chat/completions`, bearer auth).
+- **`ListProviders` IPC verb** in `runtime/core/src/ipc.rs`; gateway client in `runtime/client.go`; handler in `handler/provider.go` serving `GET /api/v1/providers`.
+- **`scripts/smoke-llm-openai.sh`** + **`.github/workflows/llm-smoke.yml`** — `IRONGOLEM_LLM_PROVIDER=openai` matrix job; skips cleanly (exit 2 → green) when secret unset.
+
+### Step 4 — Commitments subsystem (backend)
+
+Adopts openclaw `src/commitments/`. User-facing future-obligation tracking distinct from runtime-health heartbeats. Lifecycle: extraction → queue → fire → dismiss / snooze / expire.
+
+- **`services/gateway/internal/commitments/`** — types, SQLite store with dedup by `workspace_id + dedupe_key`, heuristic regex+keyword extractor (LLM extractor lands in v0.4 once runtimed exposes a direct-LLM IPC verb), 60s ticker with 10min expire grace.
+- **`gateway_commitments` table** + handler endpoints (`GET`, `dismiss`, `snooze`, admin `DELETE`).
+- **Post-reply hook** on `Handler` lets the commitments runtime hook into every successful assistant turn for async extraction.
+
+### Step 5 — Audit probe subsystem
+
+Adopts openclaw `src/security/audit-*` taxonomy. Continuous-security-testing-as-runtime on top of the existing 5-layer enforcement.
+
+- **`services/gateway/internal/audit/`** — `Probe` interface, `Finding` shape, `Severity` enum (info / warning / critical), Registry, 5min ticker with panic-recovery and invalid-severity normalization.
+- **Four probes**: `workspace_skill_escape` (vacuous placeholder for v0.4 skill system), `trust_model` (HMAC secret presence + placeholder detection), `channel_dm_policy` (orphan + conflicting rule detection), `connector_health_drift` (env drift via Step 1's `CheckFn`).
+- **`gateway_audit_findings` table** + **`GET /api/v2/audit/findings?severity=&limit=`**.
+- New event kind **`audit.finding`** — emitted for non-info findings only.
+
+### Step 6 — Frontend UX hardening
+
+Retires the v0.2 silent-fail (`.catch(() => mockFallback)`).
+
+- **`RouteSkeleton`** (cards / list / timeline variants), **`RouteErrorBoundary`** (per-route React class boundary), **`RouteError`** (caught-failure UI with retry).
+- **`useRouteData<T>` hook** in `lib/route-data.ts` — `{ status, data, error, reload }` envelope. Supports seeded mode (Home/Inbox/Health) and skeleton-first (Commitments + Audit).
+- **Home / Inbox / Health migrated** to envelope; real-mode failures surface via `<RouteError>` instead of stale mock data. Routes auto-wrapped in `<RouteErrorBoundary>` via `registry.tsx`.
+
+### Step 7 — Commitments + Audit frontend
+
+- **`/commitments`** route — filter chips by status, list of cards (kind + sensitivity + due-window + routing), Snooze 4h + Dismiss actions, mock + real-API hookup.
+- **`/audit`** route — severity-filtered findings list with drill-down evidence panel.
+- Nav entries added to `WorkspaceTopbar`.
+
+### Step 8 — Connector breadth: Slack + Discord + Signal
+
+Triples coverage from 3 to 6 connectors.
+
+- **`connectors/slack/`** — `chat.postMessage` outbound + boot-time `auth.test`. Events API inbound stubbed (v0.4).
+- **`connectors/discord/`** — `channels/{id}/messages` outbound + boot-time `/users/@me` validation. Gateway WebSocket inbound stubbed (v0.4).
+- **`connectors/signal/`** — `signal-cli` shell bridge. CheckFn requires the account env AND the binary on PATH.
+- Smoke scripts at `scripts/smoke-{slack,discord,signal}.sh`. Each exits 2 cleanly when env unset.
+- `doctor --format=json` now enumerates all six connectors.
+
+### Weaknesses tracked
+
+10 weaknesses surfaced from the competitive scan: 5 ALREADY MITIGATED by IronGolem's three-domain split + event-sourcing + workspace-scoped HMAC claims (W1, W4, W6, W7, W9); the remaining 5 (W2/W3 plugin supply-chain, W5 audit isolation, W8 per-connector process isolation, W10 credential isolation) are gated on v0.4+ prerequisites and documented in the plan.
+
+### Deferred to v0.4+
+
+Shared content-addressable checkpoint store, plugin system (depends on WASM sandbox completion), per-connector process isolation, LLM-based commitment extractor (needs direct-LLM IPC verb), Slack Events API receiver, Discord Gateway WebSocket, Signal `signal-cli daemon` inbound, dark mode + comprehensive a11y, scheduler unpark, ESLint `no-inline-component-redefine` rule, StatusChip + SourcePill promotion to `@irongolem/ui`, visual baseline re-capture.
+
+---
+
 ## v0.2 — Foundation Hardening (in progress)
 
 Plan: [`Plans/v0.2-foundation.md`](Plans/v0.2-foundation.md). v0.1's spine handles requests; v0.2 hardens identity, real connectors, real-API frontend integration, and durable policy enforcement.

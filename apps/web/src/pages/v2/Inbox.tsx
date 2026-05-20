@@ -15,6 +15,8 @@
 
 import React, { useEffect, useMemo, useReducer, useState } from "react";
 
+import { RouteError } from "../../components/RouteError";
+import { useRouteData } from "../../lib/route-data";
 import { WorkspaceTopbar } from "./_shared/WorkspaceTopbar";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -853,31 +855,26 @@ export function Inbox() {
   const [draftBuffer, setDraftBuffer] = useState<Draft | undefined>(undefined);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  // v0.2 Step 3 — F6 Inbox real-API. When VITE_API_MODE_INBOX=real the
-  // first render shows the mock seed (so the layout never flashes empty),
-  // then this effect fetches the real list from the gateway and swaps it
-  // in via the reducer's `replace` action. In mock mode `api.v2.inbox.list()`
-  // resolves to the same mock array synchronously, so the dispatch is a
-  // no-op `replace` — kept unconditional for the sole benefit of catching
-  // shape drift between the mock and the real wire contract on the next
-  // hot-reload.
+  // v0.2 Step 3 / v0.3 Step 6 — F6 Inbox real-API. When
+  // VITE_API_MODE_INBOX=real the first render shows the mock seed (so the
+  // layout never flashes empty), then `useRouteData()` fetches the real
+  // list and the page swaps it in via the reducer's `replace` action.
+  //
+  // The v0.3 change is the explicit error path: previous versions silently
+  // kept the mock visible on real-mode failure, so a sign-in misconfig
+  // looked like "everything's fine, just no new inbox items." Now the
+  // page renders `<RouteError>` so the operator sees the gateway is
+  // unreachable instead of stale data.
+  const inboxLoad = useRouteData({
+    initialData: initialItems,
+    load: () => api.v2.inbox.list(),
+  });
   useEffect(() => {
-    let cancelled = false;
-    api.v2.inbox
-      .list()
-      .then((next) => {
-        if (cancelled) return;
-        dispatch({ type: "replace", items: next.map((e) => ({ ...e })) as Item[] });
-        if (next.length > 0) setSelectedId(next[0]!.id);
-      })
-      .catch(() => {
-        // Real-mode failures keep the mock seed visible; the gateway log
-        // is the source of truth for diagnostics.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (inboxLoad.status !== "ok" || inboxLoad.data == null) return;
+    const next = inboxLoad.data;
+    dispatch({ type: "replace", items: next.map((e) => ({ ...e })) as Item[] });
+    if (next.length > 0) setSelectedId(next[0]!.id);
+  }, [inboxLoad.status, inboxLoad.data]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const counts: Record<ChipId, number> = useMemo(
@@ -953,6 +950,24 @@ export function Inbox() {
     dispatch({ type: "edit-commit", id: selected.id, draft: draftBuffer });
     setEditing(false);
   };
+
+  // v0.3 Step 6 — real-mode failure now renders an explicit error state
+  // instead of silently displaying the mock seed. Mock-mode failures fall
+  // through (the load() promise resolves with the seed array synchronously),
+  // so this branch only fires when VITE_API_MODE_INBOX=real and the
+  // gateway is actually unreachable.
+  if (inboxLoad.status === "error") {
+    return (
+      <div className="min-h-screen bg-neutral-50">
+        <WorkspaceTopbar />
+        <RouteError
+          route="Inbox"
+          error={inboxLoad.error}
+          onRetry={inboxLoad.reload}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50 flex flex-col">

@@ -141,6 +141,61 @@ func Migrate(db *sql.DB) error {
 			PRIMARY KEY (channel_id, action)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_channel_policies_channel ON channel_policies(channel_id)`,
+
+		// v0.3 Step 5 — Audit probe findings. One row per probe
+		// invocation (so the UI can show the run history). Evidence
+		// is JSON-encoded to avoid schema churn when probes evolve.
+		// stored_at is the gateway clock when the row landed;
+		// ts is the probe's own "when I ran" timestamp (typically
+		// nearly identical, but the field exists so future
+		// out-of-process probes don't lose their wall-clock truth).
+		`CREATE TABLE IF NOT EXISTS gateway_audit_findings (
+			id          TEXT PRIMARY KEY NOT NULL,
+			probe_id    TEXT NOT NULL,
+			severity    TEXT NOT NULL,
+			reason      TEXT NOT NULL DEFAULT '',
+			evidence    TEXT NOT NULL DEFAULT '{}',
+			ts          TEXT NOT NULL,
+			stored_at   TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_findings_stored_at ON gateway_audit_findings(stored_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_findings_severity ON gateway_audit_findings(severity, stored_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_findings_probe ON gateway_audit_findings(probe_id, stored_at DESC)`,
+
+		// v0.3 Step 4 — Commitments. Time-bound assistant promises with
+		// fire / dismiss / snooze / expire lifecycle. due_window stored
+		// as two int64 unix-millis to match the v2 frontend's time
+		// vocabulary. Sent / dismissed / snoozed / expired columns are
+		// nullable in spirit (0 = unset) to keep the row width fixed.
+		`CREATE TABLE IF NOT EXISTS gateway_commitments (
+			id                TEXT PRIMARY KEY NOT NULL,
+			workspace_id      TEXT NOT NULL,
+			tenant_id         TEXT NOT NULL DEFAULT '',
+			kind              TEXT NOT NULL,
+			sensitivity       TEXT NOT NULL,
+			status            TEXT NOT NULL,
+			reason            TEXT NOT NULL DEFAULT '',
+			suggested_text    TEXT NOT NULL DEFAULT '',
+			dedupe_key        TEXT NOT NULL,
+			confidence        REAL NOT NULL DEFAULT 0,
+			earliest_ms       INTEGER NOT NULL,
+			latest_ms         INTEGER NOT NULL,
+			timezone          TEXT NOT NULL DEFAULT '',
+			connector_id      TEXT NOT NULL DEFAULT '',
+			channel_id        TEXT NOT NULL DEFAULT '',
+			user_id           TEXT NOT NULL DEFAULT '',
+			source_event_id   TEXT NOT NULL DEFAULT '',
+			created_at_ms     INTEGER NOT NULL,
+			updated_at_ms     INTEGER NOT NULL,
+			sent_at_ms        INTEGER,
+			dismissed_at_ms   INTEGER,
+			snoozed_until_ms  INTEGER,
+			expired_at_ms     INTEGER,
+			attempts          INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_commitments_workspace_status ON gateway_commitments(workspace_id, status, earliest_ms)`,
+		`CREATE INDEX IF NOT EXISTS idx_commitments_dedupe ON gateway_commitments(workspace_id, dedupe_key)`,
+		`CREATE INDEX IF NOT EXISTS idx_commitments_due ON gateway_commitments(status, earliest_ms, latest_ms)`,
 	}
 
 	tx, err := db.Begin()

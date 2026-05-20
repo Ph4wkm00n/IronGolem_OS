@@ -13,6 +13,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import { RouteError } from "../../components/RouteError";
+import { useRouteData } from "../../lib/route-data";
 import { WorkspaceTopbar } from "./_shared/WorkspaceTopbar";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,23 +623,20 @@ export function Health() {
   const [openGraphIds, setOpenGraphIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
 
+  // v0.3 Step 6 — wrap the v0.2 load in `useRouteData` so a real-mode
+  // failure surfaces via `<RouteError>` instead of silently keeping the
+  // mock seed visible. Mock mode resolves synchronously, so the error
+  // branch never fires there.
+  const healthLoad = useRouteData({
+    initialData: HEALTH_MOCK,
+    load: () => api.v2.health.load(),
+  });
   useEffect(() => {
-    let cancelled = false;
-    api.v2.health
-      .load()
-      .then((next) => {
-        if (cancelled) return;
-        setComponents(next.components);
-        setHealEvents(next.healEvents);
-        setPredictive(next.predictive);
-      })
-      .catch(() => {
-        // Mock seed stays visible on real-mode failures.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (healthLoad.status !== "ok" || healthLoad.data == null) return;
+    setComponents(healthLoad.data.components);
+    setHealEvents(healthLoad.data.healEvents);
+    setPredictive(healthLoad.data.predictive);
+  }, [healthLoad.status, healthLoad.data]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -672,6 +671,22 @@ export function Health() {
     if (!w) return;
     setToast(`${w.suggestedAction} · ${w.component}`);
   };
+
+  // v0.3 Step 6 — explicit error rendering when the gateway fails in
+  // real mode. Mock mode never lands here because its load() resolves
+  // synchronously with the seed.
+  if (healthLoad.status === "error") {
+    return (
+      <div className="min-h-screen bg-neutral-50">
+        <WorkspaceTopbar showHeartbeatPill={false} />
+        <RouteError
+          route="Health"
+          error={healthLoad.error}
+          onRetry={healthLoad.reload}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50">

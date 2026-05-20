@@ -138,6 +138,24 @@ func (m *Manager) SetInboundHandler(h InboundHandler) {
 	m.inboundHandler = h
 }
 
+// SendOutbound delivers a message through a registered connector
+// outside the inbound-pump path. v0.3 Step 4 added this so the
+// commitments runtime can fire scheduled reminders that didn't
+// originate from a fresh inbound turn. Returns an error if no source
+// is registered under id.
+func (m *Manager) SendOutbound(ctx context.Context, connectorID, channelID, content string) error {
+	m.mu.RLock()
+	st, ok := m.sources[connectorID]
+	m.mu.RUnlock()
+	if !ok {
+		return errors.New("connector: source not registered: " + connectorID)
+	}
+	return st.src.Send(ctx, OutboundMessage{
+		ChannelID: channelID,
+		Content:   content,
+	})
+}
+
 // RegisterSource starts a pump goroutine that drains src.Receive into the
 // inbound handler. Registers the connector in the health table if it
 // wasn't already present. Returns the spawned pump's cancel function for

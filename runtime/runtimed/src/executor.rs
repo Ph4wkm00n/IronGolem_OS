@@ -112,9 +112,7 @@ mod tests {
     fn executor() -> Arc<RealStepExecutor> {
         Arc::new(RealStepExecutor::new(
             Arc::new(LocalSandboxHost::with_builtins()),
-            Arc::new(MockProvider {
-                response: "pong".into(),
-            }),
+            Arc::new(MockProvider::new("pong")),
         ))
     }
 

@@ -41,6 +41,13 @@ const DefaultInboundTimeout = 30 * time.Second
 // strictly as a UUID, so we use the nil UUID rather than the empty string.
 const defaultWorkspaceID = "00000000-0000-0000-0000-000000000000"
 
+// PostReplyHook fires after a successful HandleInbound (reply
+// delivered, audit events recorded). v0.3 Step 4 uses it for the
+// commitments-extraction enqueue path; future steps may register
+// additional observers without changing handler.go. Hooks must
+// not block — they typically spawn a goroutine.
+type PostReplyHook func(ctx context.Context, msg planner.InboundMessage, reply, inboundEventID string)
+
 // Handler holds the dependencies for the gateway HTTP handlers.
 type Handler struct {
 	logger     *slog.Logger
@@ -50,6 +57,20 @@ type Handler struct {
 	// inboundTimeout caps the synth → execute round-trip; defaults to
 	// DefaultInboundTimeout when unset.
 	inboundTimeout time.Duration
+	// postReplyHooks fire after a successful HandleInbound. Set via
+	// SetPostReplyHook. Stored as a slice so multiple subsystems
+	// (commitments, future analytics) can observe without coupling.
+	postReplyHooks []PostReplyHook
+}
+
+// SetPostReplyHook registers a hook fired after each successful
+// HandleInbound. Multiple hooks accumulate. Safe to call at any time
+// (no locking — registration happens at boot, not concurrently).
+func (h *Handler) SetPostReplyHook(hook PostReplyHook) {
+	if hook == nil {
+		return
+	}
+	h.postReplyHooks = append(h.postReplyHooks, hook)
 }
 
 // Options carries the optional dependencies the handler needs once Step 5
@@ -283,6 +304,13 @@ func (h *Handler) HandleInbound(ctx context.Context, msg planner.InboundMessage)
 		}
 		reply := extractLlmText(terminal.Response.Output)
 		h.recordOutbound(msg, reply)
+		// v0.3 Step 4 — fire post-reply hooks (commitments extraction,
+		// future subsystems). Hooks run inline so the caller's context
+		// is still alive; each hook is responsible for spawning its
+		// own goroutine if it wants async behavior.
+		for _, hook := range h.postReplyHooks {
+			hook(ctx, msg, reply, inboundEventID)
+		}
 		return &InboundResult{InboundEventID: inboundEventID, Reply: reply}, nil
 	case <-execCtx.Done():
 		return nil, execCtx.Err()

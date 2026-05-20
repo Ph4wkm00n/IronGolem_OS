@@ -10,12 +10,14 @@ import (
 
 // Kind names mirror serde's #[serde(tag = "kind")] tags in Rust.
 const (
-	KindExecutePlanRequest  = "execute_plan_request"
-	KindExecutePlanResponse = "execute_plan_response"
-	KindEventNotification   = "event_notification"
-	KindPingRequest         = "ping_request"
-	KindPingResponse        = "ping_response"
-	KindShutdown            = "shutdown"
+	KindExecutePlanRequest    = "execute_plan_request"
+	KindExecutePlanResponse   = "execute_plan_response"
+	KindEventNotification     = "event_notification"
+	KindPingRequest           = "ping_request"
+	KindPingResponse          = "ping_response"
+	KindListProvidersRequest  = "list_providers_request"  // v0.3 Step 3
+	KindListProvidersResponse = "list_providers_response" // v0.3 Step 3
+	KindShutdown              = "shutdown"
 )
 
 // Envelope is the raw form of every NDJSON line. Read this first to dispatch
@@ -72,6 +74,26 @@ type PingResponse struct {
 type Shutdown struct {
 	Kind      string `json:"kind"` // KindShutdown
 	RequestID string `json:"request_id"`
+}
+
+// ListProvidersRequest asks runtimed to enumerate provider profiles it
+// knows how to instantiate (v0.3 Step 3 of Plans/modular-puzzling-blum.md).
+// The payload mirrors PingRequest — only a request_id — so wire shape
+// stays minimal and the response carries everything.
+type ListProvidersRequest struct {
+	Kind      string `json:"kind"` // KindListProvidersRequest
+	RequestID string `json:"request_id"`
+}
+
+// ListProvidersResponse carries the active provider name and every
+// known profile so the settings UI can show "currently active" alongside
+// available alternatives without a separate query. Profiles arrive as
+// raw JSON to keep `services/pkg/runtime` free of provider-side types.
+type ListProvidersResponse struct {
+	Kind      string            `json:"kind"` // KindListProvidersResponse
+	RequestID string            `json:"request_id"`
+	Active    string            `json:"active"`
+	Profiles  []json.RawMessage `json:"profiles"`
 }
 
 // Plan mirrors irongolem-core::plan::Plan.
