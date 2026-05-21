@@ -11,6 +11,12 @@ permissions:
 env:
   GO_VERSION: "1.25"
   NODE_VERSION: "20"
+  # Opt into Node.js 24 for JavaScript actions ahead of the
+  # 2026-06-02 GitHub Actions forced default. Without this,
+  # actions/setup-go@v5 + softprops/action-gh-release@v2 emit
+  # deprecation warnings on every release-workflow run.
+  # See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-go-binaries:
@@ -38,6 +44,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          # Both modules cached so doctor + gateway + helpers all hit
+          # warm cache. Without these paths v1.2.0's release run
+          # surfaced "Restore cache failed: Dependencies file is not
+          # found" warnings on every matrix shard.
+          cache-dependency-path: |
+            services/go.sum
+            connectors/go.sum
 
       - name: Build Go services
         working-directory: services

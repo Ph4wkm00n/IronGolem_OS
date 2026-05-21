@@ -26,6 +26,11 @@ concurrency:
   group: llm-smoke
   cancel-in-progress: true
 
+env:
+  # Opt into Node.js 24 for JavaScript actions ahead of the 2026-06-02
+  # GitHub Actions forced default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   smoke:
     name: ${{ matrix.provider }} provider smoke
