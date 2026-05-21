@@ -6,9 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
-## v0.3 — Adoption + Hardening
+## v0.3 — Adoption + Hardening (tagged [v1.2.0](https://github.com/Ph4wkm00n/IronGolem_OS/releases/tag/v1.2.0) · merged via [#63](https://github.com/Ph4wkm00n/IronGolem_OS/pull/63) on 2026-05-20)
 
-Plan: [`Plans/modular-puzzling-blum.md`](Plans/modular-puzzling-blum.md). Source-code comparison vs `openclaw/openclaw` (TS, 1.22M LOC) and `NousResearch/hermes-agent` (Python, 822K LOC) surfaced seven architectural patterns worth adopting and ten distinct weaknesses to track. v0.3 absorbs the highest-leverage patterns into IronGolem's three-domain split while hardening the frontend's silent-fail patterns inherited from v0.2.
+Plan: [`Plans/modular-puzzling-blum.md`](Plans/modular-puzzling-blum.md). Source-code comparison vs `openclaw/openclaw` (TS, 1.22M LOC) and `NousResearch/hermes-agent` (Python, 822K LOC) surfaced seven architectural patterns worth adopting and ten distinct weaknesses to track. v0.3 absorbs the highest-leverage patterns into IronGolem's three-domain split while hardening the frontend's silent-fail patterns inherited from v0.2. Tagged as `v1.2.0` to continue semver from the v1.1.0 closure of v0.2.
 
 ### Step 1 — Connector registration extension
 

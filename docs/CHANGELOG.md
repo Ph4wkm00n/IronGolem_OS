@@ -1,12 +1,22 @@
 # Changelog
 
-All notable changes to IronGolem OS are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/).
+> **This file has been superseded.** The canonical release log lives at
+> [`/CHANGELOG.md`](../CHANGELOG.md) in the repo root and is updated per
+> step in each gateway-architecture milestone (v0.1, v0.2, v0.3, …).
+>
+> This file remains as a historical snapshot of the pre-v0.1 phase plan.
+> All releases from `v0.1.0` onward are documented in the root changelog.
 
-## [0.1.0] - 2026-04-01
+---
 
-Initial open-source release.
+## Historical phase plan (pre-v0.1)
 
-### Phase 1 -- Trustworthy Local Core
+The four-phase plan below predates the milestone-based release log. It
+describes the *intended* OSS-scaffolding sequence at project inception,
+not the actual ship history. For what shipped and when, read
+[`/CHANGELOG.md`](../CHANGELOG.md).
+
+### Phase 1 — Trustworthy Local Core
 
 - Rust runtime baseline: plan graphs, policy enforcement, checkpointing, WASM sandbox
 - Go control plane: gateway, scheduler, health, defense services
@@ -20,7 +30,7 @@ Initial open-source release.
 - Provider abstraction layer for LLM backends
 - Basic OpenTelemetry tracing
 
-### Phase 2 -- Team-Grade Architecture
+### Phase 2 — Team-Grade Architecture
 
 - PostgreSQL multi-tenant team mode with per-workspace isolation
 - Tenant-aware API and data boundaries
@@ -30,7 +40,7 @@ Initial open-source release.
 - Connector scope controls (per-channel restrictions)
 - OTLP-ready tracing pipeline
 
-### Phase 3 -- Adaptive Intelligence
+### Phase 3 — Adaptive Intelligence
 
 - Knowledge graph memory with confidence scoring and freshness tracking
 - Self-learning loop: preference capture, prompt refinement, feedback integration
@@ -38,7 +48,7 @@ Initial open-source release.
 - Optimizer service: prompt caching, A/B experiments, benchmark tooling
 - Auto-research loop with scheduled briefs
 
-### Phase 4 -- Defense and Resilience
+### Phase 4 — Defense and Resilience
 
 - Self-defending loop: anomaly detection, quarantine, rollback
 - Defense service with allowlist/blocklist management
@@ -46,7 +56,7 @@ Initial open-source release.
 - Incident timeline with full audit trail
 - Fleet service for multi-instance monitoring (Team mode)
 
-### Phase 5 -- Channel and Ecosystem Expansion
+### Phase 5 — Channel and Ecosystem Expansion
 
 - Additional connectors: Slack, Discord, WhatsApp, Feishu/Lark, CalDAV, browser automation
 - Webhook and generic REST connector

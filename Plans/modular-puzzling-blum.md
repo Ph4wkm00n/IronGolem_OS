@@ -1,5 +1,7 @@
 # v0.3 — Adoption + Hardening (from openclaw/hermes competitive scan)
 
+> **Status: SHIPPED** as `v1.2.0` on 2026-05-20 via [PR #63](https://github.com/Ph4wkm00n/IronGolem_OS/pull/63). All eight steps merged. See [`CHANGELOG.md`](../CHANGELOG.md) for the per-step release log. This plan file is preserved as the historical record of the design decisions that drove the release; subsequent edits should land in the v0.4 plan rather than here.
+
 ## Context
 
 v1.1.0 closed the v0.2 plan (foundation hardening: real Telegram, workspace claims, F6 real-API for Inbox/Home/Health, Layer-4 channel policies, LLM smoke gate, release polish). A source-code comparison vs `openclaw/openclaw` (TS, 1.22M LOC) and `NousResearch/hermes-agent` (Python, 822K LOC) — both real codebases despite physically-impossible star counts (372k/153k) — surfaced seven architectural patterns worth adopting and ten distinct weaknesses to track.
