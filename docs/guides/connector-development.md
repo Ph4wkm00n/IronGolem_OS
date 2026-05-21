@@ -11,18 +11,88 @@ Every connector lives in `connectors/<name>/` and must implement:
 2. **Token lifecycle** - Manage authentication credentials
 3. **Health signals** - Emit heartbeat data for the Health Center
 4. **Policy boundaries** - Enforce connector-specific restrictions
+5. **Registration metadata** - Self-register with the package-level registry so
+   `irongolem-doctor` and the setup wizard can report readiness without
+   per-connector special cases (v0.3 Step 1).
+
+## Built-in Connectors (v1.2.0)
+
+| Connector | Send | Receive | Auth |
+|-----------|------|---------|------|
+| `telegram` | ✓ | ✓ (long-poll) | Bot token |
+| `email`    | ✓ | ✓ (IMAP)     | Username + password / app password |
+| `webhook`  | ✓ | ✓ (HTTP)     | Configurable (bearer, basic, HMAC) |
+| `slack`    | ✓ | stubbed (v0.4 Events API webhook) | Bot token (`xoxb-…`) |
+| `discord`  | ✓ | stubbed (v0.4 Gateway WebSocket) | Bot token |
+| `signal`   | ✓ | stubbed (v0.4 `signal-cli daemon`) | `signal-cli` bridge + verified account |
 
 ## Connector Categories
 
 | Category | Examples |
 |----------|---------|
-| Messaging | Telegram, Slack, Discord, WhatsApp, Feishu/Lark |
+| Messaging | Telegram, Slack, Discord, Signal, WhatsApp (v0.4+), Feishu/Lark (v0.4+) |
 | Email | IMAP/SMTP email |
-| Calendar | Google Calendar, CalDAV |
-| Filesystem | Local file access |
-| Browser | Web automation |
-| Docs | Knowledge source ingestion |
+| Calendar | Google Calendar (v0.4+), CalDAV (v0.4+) |
+| Filesystem | Local file access (v0.4+) |
+| Browser | Web automation (v0.4+) |
+| Docs | Knowledge source ingestion (v0.4+) |
 | Generic | Webhooks, REST APIs |
+
+## Registration Pattern (v0.3 Step 1)
+
+Each connector subpackage exports a `Registration()` function and calls
+`connectors.MustRegister(Registration())` from an `init()` so the
+package-level registry sees it without explicit wiring in main.go.
+
+```go
+// connectors/<name>/metadata.go
+package mychannel
+
+import (
+    "fmt"
+    "os"
+    "strings"
+
+    connectors "github.com/Ph4wkm00n/IronGolem_OS/connectors"
+)
+
+const envToken = "IRONGOLEM_MYCHANNEL_TOKEN"
+
+func Registration() connectors.Registration {
+    return connectors.Registration{
+        Type:        connectors.ConnectorType("mychannel"),
+        Label:       "My Channel",
+        CheckFn:     func() bool { return strings.TrimSpace(os.Getenv(envToken)) != "" },
+        RequiredEnv: []string{envToken},
+        InstallHint: "Set IRONGOLEM_MYCHANNEL_TOKEN from the My Channel developer portal.",
+        ValidateConfig: func(cfg map[string]string) error {
+            if strings.TrimSpace(cfg["token"]) == "" {
+                return fmt.Errorf("token is required")
+            }
+            return nil
+        },
+        Source: connectors.SourceBuiltin,
+    }
+}
+
+func init() { connectors.MustRegister(Registration()) }
+```
+
+The fields:
+
+| Field | Purpose |
+|-------|---------|
+| `Type` | Canonical wire identifier — also the registry key. |
+| `Label` | Human-readable name shown by `doctor` and the setup wizard. |
+| `CheckFn` | Cheap synchronous predicate. `true` when boot-level env is set. **Must not do network IO.** |
+| `RequiredEnv` | Env vars surfaced by `doctor` when `CheckFn` fails. |
+| `InstallHint` | One-line guidance shown alongside a failed `CheckFn`. |
+| `ValidateConfig` | Optional second-stage check against an instantiated config map. |
+| `Source` | `SourceBuiltin` (in-repo) or `SourcePlugin` (v0.4+ external). |
+
+Wire the connector into both `services/gateway/cmd/main.go` AND
+`services/gateway/cmd/doctor/main.go` via blank import so the doctor
+binary's view always matches what the gateway loads.
 
 ## Connector Interface
 
