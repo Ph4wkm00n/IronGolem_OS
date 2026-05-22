@@ -38,12 +38,26 @@ func TestTrustModel_MissingSecretIsCritical(t *testing.T) {
 	}
 }
 
-func TestTrustModel_PlaceholderSecretIsWarning(t *testing.T) {
+// v1.2.2: well-known placeholder strings are CRITICAL (rotate
+// immediately), distinct from merely-short secrets which are warning.
+// Pre-v1.2.2 conflated the two under a single warning, hiding the
+// "you shipped 'changeme' to production" case behind the "secret is
+// kind of short" UX.
+func TestTrustModel_WellKnownPlaceholderIsCritical(t *testing.T) {
 	t.Setenv("ZZ_TEST_HMAC", "changeme")
 	p := NewTrustModelWithEnv("ZZ_TEST_HMAC")
 	f := p.Run(context.Background())
-	if f.Severity != audit.SeverityWarning {
-		t.Fatalf("severity = %q, want warning for placeholder secret", f.Severity)
+	if f.Severity != audit.SeverityCritical {
+		t.Fatalf("severity = %q, want critical for well-known placeholder", f.Severity)
+	}
+	if !strings.Contains(f.Reason, "placeholder") {
+		t.Fatalf("reason should mention placeholder: %q", f.Reason)
+	}
+	if f.Evidence["heuristic"] != "placeholder_string_match" {
+		t.Fatalf("heuristic = %v, want placeholder_string_match", f.Evidence["heuristic"])
+	}
+	if _, ok := f.Evidence["fingerprint"].(string); !ok {
+		t.Fatalf("evidence should include a fingerprint string; got %v", f.Evidence["fingerprint"])
 	}
 }
 
@@ -57,6 +71,9 @@ func TestTrustModel_StrongSecretIsInfo(t *testing.T) {
 	if f.Evidence["secret_bytes"].(int) <= 0 {
 		t.Fatalf("evidence secret_bytes should be positive, got %v", f.Evidence["secret_bytes"])
 	}
+	if fp, ok := f.Evidence["fingerprint"].(string); !ok || len(fp) != 8 {
+		t.Fatalf("evidence fingerprint should be an 8-hex-char string; got %v", f.Evidence["fingerprint"])
+	}
 }
 
 func TestTrustModel_ShortSecretIsWarning(t *testing.T) {
@@ -65,6 +82,36 @@ func TestTrustModel_ShortSecretIsWarning(t *testing.T) {
 	f := p.Run(context.Background())
 	if f.Severity != audit.SeverityWarning {
 		t.Fatalf("severity = %q, want warning for short secret", f.Severity)
+	}
+	if f.Evidence["heuristic"] != "short_secret" {
+		t.Fatalf("heuristic = %v, want short_secret", f.Evidence["heuristic"])
+	}
+}
+
+// v1.2.2: probe reads via raw os.Getenv (no trim), matching the
+// gateway's own secret read. Pre-patch the probe trimmed and the
+// gateway didn't, so a trailing-newline secret would make the probe
+// say "intact" while the running process used a different secret.
+// Verifying the fingerprint is the deterministic anchor: same bytes
+// in → same fingerprint out, so the probe and the gateway can be
+// cross-checked by eyeballing two log lines.
+func TestTrustModel_FingerprintReflectsRawSecretBytes(t *testing.T) {
+	t.Setenv("ZZ_TEST_HMAC", "raw-secret\n")
+	p := NewTrustModelWithEnv("ZZ_TEST_HMAC")
+	f := p.Run(context.Background())
+	fp, ok := f.Evidence["fingerprint"].(string)
+	if !ok {
+		t.Fatalf("no fingerprint in evidence: %v", f.Evidence)
+	}
+	// The fingerprint is sha256("raw-secret\n")[:4] as hex. We don't
+	// hardcode the expected value; just assert that re-running with
+	// the trimmed variant produces a DIFFERENT fingerprint — proving
+	// the probe distinguishes them.
+	t.Setenv("ZZ_TEST_HMAC", "raw-secret")
+	f2 := p.Run(context.Background())
+	fp2 := f2.Evidence["fingerprint"].(string)
+	if fp == fp2 {
+		t.Fatalf("trim vs no-trim produced same fingerprint %q; probe is still trimming", fp)
 	}
 }
 

@@ -76,6 +76,13 @@ func (s *SQLiteFindingStore) Insert(ctx context.Context, f Finding) (string, err
 		f.Timestamp = time.Now().UTC()
 	}
 
+	// v1.2.2: writes still emit "{}" for empty evidence so existing
+	// SQLite files migrated from v1.2.0 / v1.2.1 (where the column is
+	// NOT NULL DEFAULT '{}') keep accepting writes without an ALTER
+	// TABLE. The reader side, however, now uses sql.NullString and
+	// treats both NULL and the empty-marker string as "no evidence"
+	// — that's the half that catches accidental writer-reader drift
+	// when a future schema change relaxes the column.
 	evidenceJSON := "{}"
 	if len(f.Evidence) > 0 {
 		raw, err := json.Marshal(f.Evidence)
@@ -128,21 +135,28 @@ func (s *SQLiteFindingStore) List(ctx context.Context, severity Severity, limit 
 	var out []StoredFinding
 	for rows.Next() {
 		var (
-			f         StoredFinding
-			evidence  string
-			ts        string
-			storedAt  string
-			severity  string
+			f        StoredFinding
+			evidence sql.NullString
+			ts       string
+			storedAt string
+			severity string
 		)
 		if err := rows.Scan(&f.ID, &f.Finding.ProbeID, &severity, &f.Finding.Reason, &evidence, &ts, &storedAt); err != nil {
 			return nil, fmt.Errorf("audit list scan: %w", err)
 		}
 		f.Finding.Severity = Severity(severity)
-		if evidence != "" && evidence != "{}" {
-			if err := json.Unmarshal([]byte(evidence), &f.Finding.Evidence); err != nil {
+		// v1.2.2: sql.NullString tolerates both wire conventions —
+		// NULL (a future schema relaxation) and the legacy "{}"
+		// sentinel that the v0.3 writer emits to satisfy NOT NULL.
+		// Either reads as "no evidence" with no error. Pre-v1.2.2
+		// the reader scanned into a plain string, which would panic
+		// on NULL the day someone migrated the column.
+		if evidence.Valid && evidence.String != "" && evidence.String != "{}" {
+			if err := json.Unmarshal([]byte(evidence.String), &f.Finding.Evidence); err != nil {
 				// Evidence is best-effort; surface the parse error to the
-				// caller via the Reason instead of failing the whole list.
-				f.Finding.Evidence = map[string]any{"_parse_error": err.Error(), "_raw": evidence}
+				// caller via the Evidence map instead of failing the
+				// whole list.
+				f.Finding.Evidence = map[string]any{"_parse_error": err.Error(), "_raw": evidence.String}
 			}
 		}
 		f.Finding.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)

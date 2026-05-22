@@ -97,7 +97,24 @@ func (c *Connector) Send(ctx context.Context, msg *connectors.Message) error {
 		return fmt.Errorf("signal: recipient must be a phone number with country code (got %q)", msg.Metadata["recipient"])
 	}
 
-	cmd := exec.CommandContext(ctx, cli, "-u", account, "send", "-m", msg.Content, msg.Metadata["recipient"])
+	// v1.2.2: argv hardening. `--` tells signal-cli's flag parser that
+	// no more flags follow — protects against a future signal-cli
+	// version that begins to recognize a flag whose name happens to
+	// match user-supplied content. Strictly belt-and-suspenders: there
+	// is no shell here, so there's no shell-injection vector. argv-
+	// injection (e.g. a recipient starting with `-` that hits signal-
+	// cli's flag parser) is the only attack surface left, and the
+	// existing HasPrefix("+") check already blocks it for the
+	// recipient slot. Adding `--` defends the message-content slot the
+	// same way: if signal-cli ever grows a flag named after a phrase
+	// the user might type, the parser still treats it as content.
+	cmd := exec.CommandContext(ctx, cli,
+		"-u", account,
+		"send",
+		"-m", msg.Content,
+		"--",
+		msg.Metadata["recipient"],
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("signal-cli send: %w; output: %s", err, string(out))

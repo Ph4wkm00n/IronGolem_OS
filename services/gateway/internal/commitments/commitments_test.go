@@ -111,9 +111,12 @@ func TestStore_InsertDedupesByKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// v1.2.2: dedup returns the existing id paired with ErrDeduped so
+	// callers can distinguish "new row" from "you hit an existing one"
+	// without scanning the table again.
 	second, err := s.Insert(context.Background(), c)
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, ErrDeduped) {
+		t.Fatalf("dedup err = %v, want ErrDeduped", err)
 	}
 	if first != second {
 		t.Fatalf("dedup failed: first=%q second=%q", first, second)
@@ -339,12 +342,18 @@ func (s *stubDispatcher) Dispatch(_ context.Context, c Commitment) error {
 }
 
 type stubEmitter struct {
-	mu       sync.Mutex
-	fired    []string
-	expired  []string
+	mu        sync.Mutex
+	fired     []string
+	expired   []string
+	extracted []string
 }
 
-func (s *stubEmitter) EmitCommitmentExtracted(_ context.Context, _ Commitment) error { return nil }
+func (s *stubEmitter) EmitCommitmentExtracted(_ context.Context, c Commitment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.extracted = append(s.extracted, c.ID)
+	return nil
+}
 func (s *stubEmitter) EmitCommitmentFired(_ context.Context, c Commitment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -443,6 +452,98 @@ func TestRuntime_EnqueueAppliesThreshold(t *testing.T) {
 	if !strings.Contains(all[0].Reason, "high conf") {
 		t.Errorf("wrong candidate persisted: %q", all[0].Reason)
 	}
+}
+
+// v1.2.2: regression. Re-running the same extractor over the same Turn
+// must dedupe at the store layer AND must NOT emit a second
+// `commitment.extracted` event for the existing row. Pre-patch the
+// runtime treated ErrNoRows-free Insert as "new" and emitted on every
+// repeat extraction.
+func TestRuntime_EnqueueDedupSkipsExtractedEmission(t *testing.T) {
+	db := openTestDB(t)
+	s := NewSQLiteStore(db)
+	emit := &stubEmitter{}
+	rt := NewRuntime(s, nil, emit, nil, RuntimeConfig{})
+
+	cands := []Candidate{
+		{Kind: KindOpenLoop, Sensitivity: SensitivityRoutine, Reason: "dup", DedupeKey: "same-key", Confidence: 0.9, DueWindow: DueWindow{EarliestMs: 1, LatestMs: 2}},
+	}
+	in := Turn{WorkspaceID: "w1", SourceEventID: "evt1"}
+
+	rt.Enqueue(context.Background(), stubExtractor{candidates: cands}, in)
+	rt.Enqueue(context.Background(), stubExtractor{candidates: cands}, in)
+	rt.Enqueue(context.Background(), stubExtractor{candidates: cands}, in)
+
+	all, err := s.List(context.Background(), ListFilter{WorkspaceID: "w1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("store should hold one row after 3 dedup hits; got %d", len(all))
+	}
+	if len(emit.extracted) != 1 {
+		t.Fatalf("extracted emission count = %d, want 1 (one per genuinely new row)", len(emit.extracted))
+	}
+}
+
+// v1.2.2: ExpireOverdue batches the per-id MarkExpired path into a
+// single SELECT + UPDATE. Verify the snapshot returned matches the
+// row(s) that flipped to expired and that already-non-pending rows
+// don't trip the IN-clause guard.
+func TestStore_ExpireOverdueBatch(t *testing.T) {
+	db := openTestDB(t)
+	s := NewSQLiteStore(db)
+	ctx := context.Background()
+	now := time.Now().UTC().UnixMilli()
+
+	// Two stale, one fresh, one already-sent. Only the two stale ones
+	// should expire.
+	stale1, _ := s.Insert(ctx, sample("w1", "stale1", now-3600_000, now-1800_000))
+	stale2, _ := s.Insert(ctx, sample("w1", "stale2", now-7200_000, now-3600_000))
+	fresh, _ := s.Insert(ctx, sample("w1", "fresh", now+10_000, now+20_000))
+	sent, _ := s.Insert(ctx, sample("w1", "sent", now-3600_000, now-1800_000))
+	if err := s.MarkSent(ctx, sent, now); err != nil {
+		t.Fatal(err)
+	}
+
+	expired, err := s.ExpireOverdue(ctx, now, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expired) != 2 {
+		t.Fatalf("expired count = %d, want 2 (stale1+stale2); got ids=%v", len(expired), idsOf(expired))
+	}
+	gotIDs := map[string]bool{}
+	for _, c := range expired {
+		gotIDs[c.ID] = true
+		if c.Status != StatusExpired {
+			t.Errorf("snapshot status %q, want expired", c.Status)
+		}
+		if c.ExpiredAtMs == 0 {
+			t.Errorf("snapshot expired_at_ms still zero")
+		}
+	}
+	if !gotIDs[stale1] || !gotIDs[stale2] {
+		t.Errorf("missing expected ids: stale1=%v stale2=%v gotIDs=%v", gotIDs[stale1], gotIDs[stale2], gotIDs)
+	}
+
+	// Fresh row stays pending; sent row stays sent.
+	freshRow, _ := s.Get(ctx, fresh)
+	if freshRow.Status != StatusPending {
+		t.Errorf("fresh row flipped to %q", freshRow.Status)
+	}
+	sentRow, _ := s.Get(ctx, sent)
+	if sentRow.Status != StatusSent {
+		t.Errorf("sent row flipped to %q", sentRow.Status)
+	}
+}
+
+func idsOf(cs []Commitment) []string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, c.ID)
+	}
+	return out
 }
 
 type stubExtractor struct {

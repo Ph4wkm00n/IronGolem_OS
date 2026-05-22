@@ -2,6 +2,7 @@ package commitments
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 )
@@ -161,25 +162,20 @@ func (r *Runtime) fireOne(ctx context.Context, c Commitment) {
 
 func (r *Runtime) expireStale(ctx context.Context) {
 	graceCutoff := time.Now().UTC().UnixMilli() - r.cfg.ExpireGrace.Milliseconds()
-	// Reuse the List(pending) path; the SQL surface stays small.
-	pending, err := r.store.List(ctx, ListFilter{Status: StatusPending, Limit: 200})
+	// v1.2.2: batched expiry. The store's ExpireOverdue runs one bounded
+	// SELECT + one UPDATE; the runtime only drives the post-expire event
+	// emission. Was: List(pending,200) + N MarkExpired round-trips.
+	expired, err := r.store.ExpireOverdue(ctx, graceCutoff, 200)
 	if err != nil {
-		r.logger.Warn("commitments List failed", slog.String("error", err.Error()))
+		r.logger.Warn("commitments ExpireOverdue failed", slog.String("error", err.Error()))
 		return
 	}
-	for _, c := range pending {
-		if c.DueWindow.LatestMs == 0 || c.DueWindow.LatestMs >= graceCutoff {
-			continue
-		}
-		if err := r.store.MarkExpired(ctx, c.ID); err != nil {
-			r.logger.Warn("MarkExpired failed", slog.String("commitment_id", c.ID), slog.String("error", err.Error()))
-			continue
-		}
-		c.Status = StatusExpired
-		if r.emitter != nil {
-			if err := r.emitter.EmitCommitmentExpired(ctx, c); err != nil {
-				r.logger.Warn("EmitCommitmentExpired failed", slog.String("commitment_id", c.ID), slog.String("error", err.Error()))
-			}
+	if r.emitter == nil {
+		return
+	}
+	for _, c := range expired {
+		if err := r.emitter.EmitCommitmentExpired(ctx, c); err != nil {
+			r.logger.Warn("EmitCommitmentExpired failed", slog.String("commitment_id", c.ID), slog.String("error", err.Error()))
 		}
 	}
 }
@@ -218,7 +214,20 @@ func (r *Runtime) Enqueue(ctx context.Context, extractor Extractor, in Turn) {
 			UpdatedAtMs:   now,
 		}
 		id, err := r.store.Insert(ctx, c)
-		if err != nil {
+		// v1.2.2: ErrDeduped means the row already existed — id is
+		// valid but no new commitment was created, so skip the
+		// "extracted" lifecycle event. Without this guard, every repeat
+		// extraction over the same turn emits a phantom `commitment.
+		// extracted` event for a commitment the timeline already knows
+		// about.
+		switch {
+		case errors.Is(err, ErrDeduped):
+			r.logger.Debug("commitments dedup hit",
+				slog.String("commitment_id", id),
+				slog.String("dedupe_key", cand.DedupeKey),
+			)
+			continue
+		case err != nil:
 			r.logger.Warn("commitments Insert failed",
 				slog.String("error", err.Error()),
 				slog.String("dedupe_key", cand.DedupeKey),

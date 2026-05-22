@@ -34,6 +34,11 @@ type Store interface {
 	MarkSnoozed(ctx context.Context, id string, untilMs int64) error
 	// MarkExpired sets status=expired.
 	MarkExpired(ctx context.Context, id string) error
+	// ExpireOverdue flips every pending row whose latest_ms < cutoffMs
+	// to expired in a single UPDATE. Returns the IDs that transitioned
+	// so the caller can emit lifecycle events. limit caps the batch so
+	// a giant backlog can't wedge a single tick.
+	ExpireOverdue(ctx context.Context, cutoffMs int64, limit int) ([]Commitment, error)
 	// Delete hard-removes a row. Admin-only.
 	Delete(ctx context.Context, id string) error
 }
@@ -47,6 +52,19 @@ type ListFilter struct {
 
 // ErrNotFound is returned by Get / mark methods when no row matches.
 var ErrNotFound = errors.New("commitment not found")
+
+// ErrDeduped is returned by Insert when a pending row with the same
+// (workspace_id, dedupe_key) already exists. The returned id refers to
+// the EXISTING row, not a newly-inserted one. Callers that care about
+// emitting "extracted" lifecycle events MUST check `errors.Is(err,
+// ErrDeduped)` and skip the emission — otherwise duplicate extraction
+// of the same turn spams the timeline with phantom "extracted" events
+// for a commitment that was already there.
+//
+// Backward compatible: callers that only want the id can ignore the
+// error (the id field is always valid on dedupe-hit). The error exists
+// purely so emission-side callers can distinguish the two outcomes.
+var ErrDeduped = errors.New("commitment deduped against existing pending row")
 
 // SQLiteStore is the persistent Store impl backed by the gateway's
 // shared *sql.DB.
@@ -94,8 +112,12 @@ func (s *SQLiteStore) Insert(ctx context.Context, c Commitment) (string, error) 
 	}
 
 	// Dedup: if a pending row with the same (workspace_id, dedupe_key)
-	// exists, return its id instead of inserting. Saves an extractor
-	// LLM re-emission from spawning a duplicate reminder.
+	// exists, return its id paired with ErrDeduped so the caller can
+	// skip the lifecycle-event emission. Without the sentinel, an
+	// extractor that re-fires over the same turn would silently spawn a
+	// phantom "extracted" timeline event per repeat — the row stays
+	// unique but the event log lies. See ErrDeduped doc for callers'
+	// contract.
 	var existing string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id FROM gateway_commitments
@@ -103,7 +125,7 @@ func (s *SQLiteStore) Insert(ctx context.Context, c Commitment) (string, error) 
 		c.WorkspaceID, c.DedupeKey, string(StatusPending),
 	).Scan(&existing)
 	if err == nil {
-		return existing, nil
+		return existing, ErrDeduped
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("commitments dedup: %w", err)
@@ -252,6 +274,80 @@ func (s *SQLiteStore) MarkExpired(ctx context.Context, id string) error {
 		string(StatusExpired), now, now, id,
 	)
 	return rowsAffectedErr(res, err, id)
+}
+
+// ExpireOverdue is the batched expiry path used by the runtime ticker.
+// Replaces the previous "List(pending) → iterate → MarkExpired per row"
+// flow with one bounded SELECT + one UPDATE: N round-trips collapse to
+// 2 regardless of the batch size. The SELECT happens first so we can
+// emit per-id lifecycle events with full row context after the UPDATE.
+func (s *SQLiteStore) ExpireOverdue(ctx context.Context, cutoffMs int64, limit int) ([]Commitment, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	// 1. Snapshot the rows we're about to expire — we need their full
+	//    body so the runtime can emit `commitment.expired` events with
+	//    proper provenance, not just the ids.
+	q := `SELECT ` + selectColumns + `
+		FROM gateway_commitments
+		WHERE status = ? AND latest_ms > 0 AND latest_ms < ?
+		ORDER BY latest_ms ASC
+		LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, q, string(StatusPending), cutoffMs, limit)
+	if err != nil {
+		return nil, fmt.Errorf("commitments expire_overdue select: %w", err)
+	}
+	var snapshot []Commitment
+	for rows.Next() {
+		c, err := scanRows(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		snapshot = append(snapshot, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("commitments expire_overdue iter: %w", err)
+	}
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+
+	// 2. Single UPDATE covering every snapshotted id. The IN-clause is
+	//    bounded by `limit` (default 200) so SQLite's expression-tree
+	//    limit (default 1000) is never reached.
+	placeholders := make([]string, len(snapshot))
+	args := make([]any, 0, len(snapshot)+3)
+	now := time.Now().UTC().UnixMilli()
+	args = append(args, string(StatusExpired), now, now)
+	for i, c := range snapshot {
+		placeholders[i] = "?"
+		args = append(args, c.ID)
+	}
+	args = append(args, string(StatusPending)) // status guard
+	upd := `UPDATE gateway_commitments
+		SET status = ?, expired_at_ms = ?, updated_at_ms = ?
+		WHERE id IN (` + strings.Join(placeholders, ",") + `) AND status = ?`
+	res, err := s.db.ExecContext(ctx, upd, args...)
+	if err != nil {
+		return nil, fmt.Errorf("commitments expire_overdue update: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	// If a row's status changed between snapshot and update (e.g.
+	// MarkSent landed in the gap), we still emit for the survivors. Cut
+	// the snapshot down to the affected count to keep emit-count
+	// honest, dropping from the tail (oldest first stay; newest may
+	// have raced).
+	if int(n) < len(snapshot) {
+		snapshot = snapshot[:n]
+	}
+	for i := range snapshot {
+		snapshot[i].Status = StatusExpired
+		snapshot[i].ExpiredAtMs = now
+		snapshot[i].UpdatedAtMs = now
+	}
+	return snapshot, nil
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {

@@ -2,6 +2,8 @@ package probes
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"strings"
 
@@ -41,7 +43,14 @@ func NewTrustModelWithEnv(hmacEnv string) *TrustModel {
 func (TrustModel) ID() string { return "trust_model" }
 
 func (p *TrustModel) Run(_ context.Context) audit.Finding {
-	secret := strings.TrimSpace(os.Getenv(p.hmacEnv))
+	// v1.2.2: read the secret WITHOUT TrimSpace so the probe sees
+	// exactly what gateway/cmd/main.go sees (it calls os.Getenv
+	// directly, with no trim). Pre-patch the probe trimmed and the
+	// gateway didn't — a secret with trailing whitespace would make
+	// the probe say "trust foundation intact" while the running
+	// process used a different secret. The probe must observe the same
+	// bytes the consumer does.
+	secret := os.Getenv(p.hmacEnv)
 	if secret == "" {
 		return audit.Finding{
 			ProbeID:  "trust_model",
@@ -53,18 +62,41 @@ func (p *TrustModel) Run(_ context.Context) audit.Finding {
 			},
 		}
 	}
-	// Weak-secret heuristic: if the secret looks like a placeholder
-	// (e.g. "secret", "changeme", "default"), warn. Not critical
-	// because we can't tell a real-but-short secret from a placeholder.
-	if isLikelyPlaceholderSecret(secret) {
+
+	// v1.2.2: split the "looks like a placeholder string" check from
+	// the "secret is short" check. The pre-patch heuristic conflated
+	// them under one Reason — operators saw a real 12-char production
+	// secret reported as "looks like a placeholder", which is wrong:
+	// it's short, not a placeholder. The two findings carry different
+	// remediation (rotate-to-a-real-secret vs lengthen-the-secret).
+	fp := fingerprint(secret)
+	if isWellKnownPlaceholder(secret) {
 		return audit.Finding{
 			ProbeID:  "trust_model",
-			Severity: audit.SeverityWarning,
-			Reason:   "HMAC secret looks like a placeholder; rotate before production",
+			Severity: audit.SeverityCritical,
+			Reason:   "HMAC secret matches a well-known placeholder string; rotate immediately",
 			Evidence: map[string]any{
 				"env_var":     p.hmacEnv,
 				"length":      len(secret),
-				"heuristic":   "placeholder_pattern_matched",
+				"fingerprint": fp,
+				"heuristic":   "placeholder_string_match",
+			},
+		}
+	}
+	if len(secret) < 32 {
+		// 32 bytes is the recommended minimum for HMAC-SHA256 inputs
+		// (matches the block size). Below that we warn but stay
+		// non-blocking; the gateway already started, and a real-but-
+		// short secret is workable, just not best-practice.
+		return audit.Finding{
+			ProbeID:  "trust_model",
+			Severity: audit.SeverityWarning,
+			Reason:   "HMAC secret is shorter than 32 bytes; consider a longer one for HMAC-SHA256",
+			Evidence: map[string]any{
+				"env_var":     p.hmacEnv,
+				"length":      len(secret),
+				"fingerprint": fp,
+				"heuristic":   "short_secret",
 			},
 		}
 	}
@@ -75,19 +107,30 @@ func (p *TrustModel) Run(_ context.Context) audit.Finding {
 		Evidence: map[string]any{
 			"env_var":      p.hmacEnv,
 			"secret_bytes": len(secret),
+			"fingerprint":  fp,
 		},
 	}
 }
 
-// isLikelyPlaceholderSecret matches a handful of well-known placeholder
-// strings. False positives are tolerated — this is a hint, not an
-// enforcement gate.
-func isLikelyPlaceholderSecret(s string) bool {
-	lower := strings.ToLower(s)
-	for _, bad := range []string{"changeme", "default", "secret", "password", "test", "dev"} {
+// isWellKnownPlaceholder matches a handful of well-known placeholder
+// strings (case-insensitive, whitespace-trimmed for the comparison so
+// "  secret  " still fires). Distinct from short-secret detection.
+func isWellKnownPlaceholder(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	for _, bad := range []string{"changeme", "default", "secret", "password", "test", "dev", "insecure"} {
 		if lower == bad {
 			return true
 		}
 	}
-	return len(s) < 16
+	return false
+}
+
+// fingerprint returns the first 8 hex chars of sha256(secret). Lets the
+// operator confirm the probe sees the same secret as the gateway by
+// eyeballing two log lines, without ever printing the secret itself.
+// 8 hex chars = 32 bits — collision probability negligible at the
+// single-secret-per-deployment scale this is used at.
+func fingerprint(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:4])
 }

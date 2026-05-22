@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
+## v1.2.2 — Council-reviewed patch (tagged 2026-05-22)
+
+Patch-only release. Five fixes landed after a code review + security review + optimization pass; all backward-compatible at the wire level, all covered by unit tests. No new endpoints, no schema changes.
+
+### Fixes
+
+1. **`commitments.Store.Insert` returns `ErrDeduped` on dedup hits.** Pre-patch the runtime emitted a phantom `commitment.extracted` lifecycle event every time the extractor re-fired over the same turn — the row stayed unique (dedup worked), but the event timeline lied. New sentinel `ErrDeduped` lets `Runtime.Enqueue` distinguish "newly inserted" from "hit an existing row" without scanning. (`services/gateway/internal/commitments/store.go`, `runtime.go`)
+2. **`audit.probes.TrustModel` matches gateway-side secret reading.** Pre-patch the probe trimmed whitespace while `cmd/main.go` did not — a secret with a trailing newline would let the probe report "trust foundation intact" against a different value than the running process used. Probe now reads via raw `os.Getenv` and emits an 8-hex-char `fingerprint` (first 4 bytes of `sha256(secret)`) in evidence so operators can cross-check the two sides by eyeballing log lines. (`services/gateway/internal/audit/probes/trust_model.go`)
+3. **`audit.probes.TrustModel` splits placeholder-string detection from short-secret detection.** Pre-patch both fired the same `warning` with the same reason "looks like a placeholder", hiding real "`changeme` shipped to prod" cases behind benign "secret is kind of short" UX. Well-known placeholders (`changeme`, `default`, `secret`, `password`, `test`, `dev`, `insecure`) now surface as `critical`; short-but-not-placeholder secrets stay `warning`.
+4. **`connectors/signal.Send` adds an argv `--` separator before the positional recipient.** Belt-and-suspenders against argv-injection: pre-patch a future `signal-cli` version that began recognizing a flag whose name matched user-typed content would parse that content as a flag. There is no shell here so no shell-injection vector — but `--` ends flag parsing per POSIX convention, so the message-content slot is now defended the same way the existing `HasPrefix("+")` check defends the recipient slot. (`connectors/signal/signal.go`)
+5. **`commitments.Store` adds `ExpireOverdue` batched expiry.** Pre-patch the runtime ran `List(pending, 200)` + `MarkExpired` per row each tick — N round-trips for the same SQL surface. New `ExpireOverdue` collapses that to 2 SQL calls (one bounded SELECT for the snapshot, one UPDATE…WHERE id IN (…)) regardless of batch size. Stable on race: rows that flipped non-pending between the SELECT and the UPDATE are dropped from the emission list via a status guard. (`services/gateway/internal/commitments/store.go`, `runtime.go`)
+6. **`audit.SQLiteFindingStore.List` reads `evidence` via `sql.NullString`.** Pre-patch the reader scanned into a plain `string` and special-cased the literal `"{}"` for "empty" — a string-equality coupling between writer and reader that the next contributor would break silently. New reader tolerates both NULL (future schema relaxation) and the legacy `"{}"` sentinel (current writer), preserving DB compat with v1.2.0/v1.2.1 SQLite files. (`services/gateway/internal/audit/store.go`)
+
+### Tests added
+
+- `TestRuntime_EnqueueDedupSkipsExtractedEmission` — three Enqueue calls over identical input yield one stored row and one `extracted` emission.
+- `TestStore_ExpireOverdueBatch` — fresh + sent rows untouched; only stale-pending rows expire; snapshot reflects the updated status + `expired_at_ms`.
+- `TestTrustModel_WellKnownPlaceholderIsCritical` — "changeme" emits `critical` with `heuristic: placeholder_string_match`.
+- `TestTrustModel_FingerprintReflectsRawSecretBytes` — `"raw-secret\n"` and `"raw-secret"` produce different fingerprints (proves the probe no longer trims).
+- `TestStore_InsertDedupesByKey` — updated to assert `errors.Is(err, ErrDeduped)` instead of a nil error.
+
+### Operational notes
+
+- No database migration required. Fresh installs and upgrades from v1.2.0 / v1.2.1 share the same `gateway_audit_findings` schema (`evidence TEXT NOT NULL DEFAULT '{}'`).
+- The audit probe will emit a `trust_model` finding with a new `fingerprint` evidence field on the next tick. Operators relying on probe-finding shape stability should add the field to their dashboards; the old fields (`env_var`, `length`, `heuristic`) remain.
+
+---
+
+## v1.2.1 — CI workflow patch (tagged 2026-05-21)
+
+Patch-only release silencing the warnings the v1.2.0 release run emitted on every job. No behavior change in the release artifacts themselves — same gateway, mint-token, smoke-telegram, doctor binaries; same runtime libraries; same web dist. Workflow config only.
+
+- `setup-go@v5 cache-dependency-path` now points at both `go.sum` files (`services/go.sum` + `connectors/go.sum`) in `release.yml` and `ci.yml`.
+- `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` at workflow scope across `ci.yml`, `release.yml`, `llm-smoke.yml`, `docker.yml` so JS-based actions opt into Node 24 ahead of the 2026-06-02 GitHub Actions forced default.
+
+---
+
 ## v0.3 — Adoption + Hardening (tagged [v1.2.0](https://github.com/Ph4wkm00n/IronGolem_OS/releases/tag/v1.2.0) · merged via [#63](https://github.com/Ph4wkm00n/IronGolem_OS/pull/63) on 2026-05-20)
 
 Plan: [`Plans/modular-puzzling-blum.md`](Plans/modular-puzzling-blum.md). Source-code comparison vs `openclaw/openclaw` (TS, 1.22M LOC) and `NousResearch/hermes-agent` (Python, 822K LOC) surfaced seven architectural patterns worth adopting and ten distinct weaknesses to track. v0.3 absorbs the highest-leverage patterns into IronGolem's three-domain split while hardening the frontend's silent-fail patterns inherited from v0.2. Tagged as `v1.2.0` to continue semver from the v1.1.0 closure of v0.2.
