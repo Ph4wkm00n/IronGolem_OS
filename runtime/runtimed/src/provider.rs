@@ -537,10 +537,21 @@ mod tests {
         assert!(prof.fallback_models.iter().any(|m| m.starts_with("gpt-")));
     }
 
+    // Cargo runs tests in parallel by default. Both `provider_config_*`
+    // tests mutate the shared `IRONGOLEM_LLM_PROVIDER` env var, so on a
+    // multi-core CI runner they race — one thread's `set_var("mock")`
+    // gets overwritten by another's `set_var("openai")` between set and
+    // read. Serializing both tests under one mutex eliminates the race
+    // without resorting to `cargo test -- --test-threads=1`. Surfaced
+    // by the v1.2.2 push when CI's Rust Check first hit the parallel
+    // path on a 2-core ubuntu-latest runner.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn provider_config_defaults_to_mock() {
-        // Safety: setting env is unsafe in 2024 edition because it can race
-        // with reads on other threads; this test is single-threaded.
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: env mutation is data-racy with reads on other threads;
+        // ENV_MUTEX serializes every test in this file that touches env.
         unsafe {
             std::env::set_var("IRONGOLEM_LLM_PROVIDER", "mock");
             std::env::set_var("IRONGOLEM_LLM_MOCK_RESPONSE", "echo");
@@ -552,6 +563,7 @@ mod tests {
 
     #[test]
     fn provider_config_routes_openai() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::set_var("IRONGOLEM_LLM_PROVIDER", "openai");
             std::env::set_var("OPENAI_API_KEY", "sk-test");
@@ -561,7 +573,8 @@ mod tests {
         assert_eq!(cfg.kind, ProviderKind::OpenAi);
         assert_eq!(cfg.api_key.as_deref(), Some("sk-test"));
         assert_eq!(cfg.default_model, "gpt-4o-mini");
-        // Restore so the previous test doesn't see the openai routing.
+        // Restore so a future test in this file inheriting the mutex
+        // sees a clean baseline.
         unsafe {
             std::env::set_var("IRONGOLEM_LLM_PROVIDER", "mock");
             std::env::remove_var("OPENAI_API_KEY");
