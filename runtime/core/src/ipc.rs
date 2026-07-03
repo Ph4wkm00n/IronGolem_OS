@@ -35,6 +35,13 @@ pub enum Message {
     ListProvidersRequest(ListProvidersRequest),
     #[serde(rename = "list_providers_response")]
     ListProvidersResponse(ListProvidersResponse),
+    /// v0.4 — direct single-turn LLM call for internal subsystems
+    /// (commitments extraction). Deliberately NOT plan execution: no plan
+    /// events pollute the timeline for hidden background classification.
+    #[serde(rename = "llm_call_request")]
+    LlmCallRequest(LlmCallRequest),
+    #[serde(rename = "llm_call_response")]
+    LlmCallResponse(LlmCallResponse),
     #[serde(rename = "shutdown")]
     Shutdown(Shutdown),
 }
@@ -109,6 +116,36 @@ pub struct ListProvidersResponse {
     pub profiles: Vec<serde_json::Value>,
 }
 
+/// v0.4 — request: one system+user turn against the active provider.
+///
+/// Used by gateway subsystems that need a model verdict without an agent
+/// plan (the commitments LLM extractor is the first caller). `purpose`
+/// tags the call for audit/event attribution; it is not sent to the model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmCallRequest {
+    pub request_id: Uuid,
+    pub workspace_id: WorkspaceId,
+    /// Attribution tag, e.g. "commitments.extract". Never model-visible.
+    pub purpose: String,
+    /// System framing for the call. Empty string means provider default.
+    pub system: String,
+    /// The user-turn content.
+    pub prompt: String,
+    /// Hard output cap. 0 means the provider profile default.
+    pub max_tokens: u32,
+}
+
+/// v0.4 — terminal response for an LlmCallRequest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmCallResponse {
+    pub request_id: Uuid,
+    pub status: ExecutionStatus,
+    /// Raw model text on success; empty on failure.
+    pub content: String,
+    /// Populated when status is Failed.
+    pub error: Option<String>,
+}
+
 /// Terminal status of a plan execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -152,6 +189,38 @@ mod tests {
             }
             other => panic!("expected ExecutePlanRequest, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn round_trip_llm_call() {
+        let msg = Message::LlmCallRequest(LlmCallRequest {
+            request_id: Uuid::new_v4(),
+            workspace_id: WorkspaceId::new(),
+            purpose: "commitments.extract".into(),
+            system: "You are a hidden background classifier.".into(),
+            prompt: "user said: I'll follow up tomorrow".into(),
+            max_tokens: 1024,
+        });
+        let line = serde_json::to_string(&msg).unwrap();
+        assert!(line.contains("\"kind\":\"llm_call_request\""));
+        let parsed: Message = serde_json::from_str(&line).unwrap();
+        match parsed {
+            Message::LlmCallRequest(req) => {
+                assert_eq!(req.purpose, "commitments.extract");
+                assert_eq!(req.max_tokens, 1024);
+            }
+            other => panic!("expected LlmCallRequest, got {other:?}"),
+        }
+
+        let resp = Message::LlmCallResponse(LlmCallResponse {
+            request_id: Uuid::new_v4(),
+            status: ExecutionStatus::Completed,
+            content: "{\"candidates\":[]}".into(),
+            error: None,
+        });
+        let line = serde_json::to_string(&resp).unwrap();
+        assert!(line.contains("\"kind\":\"llm_call_response\""));
+        assert!(serde_json::from_str::<Message>(&line).is_ok());
     }
 
     #[test]

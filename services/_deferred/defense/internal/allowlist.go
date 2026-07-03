@@ -35,8 +35,8 @@ type AllowlistEntry struct {
 
 // AllowlistCheckResult describes the outcome of a destination check.
 type AllowlistCheckResult struct {
-	Allowed bool   `json:"allowed"`
-	Reason  string `json:"reason"`
+	Allowed     bool   `json:"allowed"`
+	Reason      string `json:"reason"`
 	MatchedRule string `json:"matched_rule,omitempty"`
 }
 

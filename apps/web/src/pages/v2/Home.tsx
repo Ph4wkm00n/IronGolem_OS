@@ -28,7 +28,6 @@ import {
   type EventStatus,
   type Team,
   type ResearchFinding,
-  type HeartbeatState,
 } from "../../lib/api";
 
 type ToneName =

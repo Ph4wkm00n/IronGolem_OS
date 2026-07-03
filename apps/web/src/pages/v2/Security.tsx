@@ -20,7 +20,6 @@ import { WorkspaceTopbar } from "./_shared/WorkspaceTopbar";
 import {
   api,
   type SecurityLayer as Layer,
-  type LayerId,
   type LayerState,
   type SecurityScope as Scope,
   type SecurityAuditEntry as AuditEntry,

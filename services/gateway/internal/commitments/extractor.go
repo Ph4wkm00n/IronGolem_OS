@@ -52,12 +52,12 @@ type Turn struct {
 //
 // v0.3 detects two commitment shapes:
 //
-//   1. Explicit time anchors: "Tuesday at 6pm", "in 2 hours", "tomorrow
-//      morning". Produces an `event_check_in` with the parsed window.
-//   2. Open-loop language: "I'll keep an eye on", "I'll follow up".
-//      Produces an `open_loop` candidate with a 24h-72h follow-up
-//      window. Confidence is lower so the MinConfidence threshold
-//      filters most of them.
+//  1. Explicit time anchors: "Tuesday at 6pm", "in 2 hours", "tomorrow
+//     morning". Produces an `event_check_in` with the parsed window.
+//  2. Open-loop language: "I'll keep an eye on", "I'll follow up".
+//     Produces an `open_loop` candidate with a 24h-72h follow-up
+//     window. Confidence is lower so the MinConfidence threshold
+//     filters most of them.
 type HeuristicExtractor struct{}
 
 // NewHeuristicExtractor returns a ready-to-use extractor. No

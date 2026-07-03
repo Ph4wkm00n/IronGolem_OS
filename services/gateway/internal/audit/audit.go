@@ -28,10 +28,13 @@ import (
 // Severity classifies a finding's urgency.
 //
 // info     — probe ran, system is in expected state. Logged for
-//             completeness; UI defaults filter these out.
+//
+//	completeness; UI defaults filter these out.
+//
 // warning  — drift or misconfiguration detected; not load-bearing yet.
 // critical — invariant violation that could compromise the trust model.
-//             Surfaced prominently in the UI; emit page-able telemetry.
+//
+//	Surfaced prominently in the UI; emit page-able telemetry.
 type Severity string
 
 const (

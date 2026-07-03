@@ -15,9 +15,9 @@ type EventKind string
 
 const (
 	// Lifecycle events
-	EventKindServiceStarted  EventKind = "service.started"
-	EventKindServiceStopped  EventKind = "service.stopped"
-	EventKindHeartbeat       EventKind = "service.heartbeat"
+	EventKindServiceStarted EventKind = "service.started"
+	EventKindServiceStopped EventKind = "service.stopped"
+	EventKindHeartbeat      EventKind = "service.heartbeat"
 
 	// Message events
 	EventKindMessageInbound  EventKind = "message.inbound"
@@ -26,33 +26,33 @@ const (
 	EventKindMessageFailed   EventKind = "message.failed"
 
 	// Connector events
-	EventKindConnectorUp     EventKind = "connector.up"
-	EventKindConnectorDown   EventKind = "connector.down"
-	EventKindConnectorError  EventKind = "connector.error"
+	EventKindConnectorUp    EventKind = "connector.up"
+	EventKindConnectorDown  EventKind = "connector.down"
+	EventKindConnectorError EventKind = "connector.error"
 
 	// Agent events
-	EventKindAgentSpawned    EventKind = "agent.spawned"
-	EventKindAgentCompleted  EventKind = "agent.completed"
-	EventKindAgentFailed     EventKind = "agent.failed"
+	EventKindAgentSpawned   EventKind = "agent.spawned"
+	EventKindAgentCompleted EventKind = "agent.completed"
+	EventKindAgentFailed    EventKind = "agent.failed"
 
 	// Workflow events
-	EventKindJobCreated      EventKind = "job.created"
-	EventKindJobStarted      EventKind = "job.started"
-	EventKindJobCompleted    EventKind = "job.completed"
-	EventKindJobFailed       EventKind = "job.failed"
+	EventKindJobCreated   EventKind = "job.created"
+	EventKindJobStarted   EventKind = "job.started"
+	EventKindJobCompleted EventKind = "job.completed"
+	EventKindJobFailed    EventKind = "job.failed"
 
 	// Security events
-	EventKindThreatDetected  EventKind = "security.threat_detected"
-	EventKindPolicyDenied    EventKind = "security.policy_denied"
-	EventKindQuarantined     EventKind = "security.quarantined"
+	EventKindThreatDetected     EventKind = "security.threat_detected"
+	EventKindPolicyDenied       EventKind = "security.policy_denied"
+	EventKindQuarantined        EventKind = "security.quarantined"
 	EventKindQuarantineReleased EventKind = "security.quarantine_released"
-	EventKindIncidentCreated EventKind = "security.incident_created"
-	EventKindIncidentResolved EventKind = "security.incident_resolved"
-	EventKindConfigRollback  EventKind = "security.config_rollback"
-	EventKindCommandBlocked  EventKind = "security.command_blocked"
+	EventKindIncidentCreated    EventKind = "security.incident_created"
+	EventKindIncidentResolved   EventKind = "security.incident_resolved"
+	EventKindConfigRollback     EventKind = "security.config_rollback"
+	EventKindCommandBlocked     EventKind = "security.command_blocked"
 
 	// Tenancy events
-	EventKindTenantCreated   EventKind = "tenancy.tenant_created"
+	EventKindTenantCreated    EventKind = "tenancy.tenant_created"
 	EventKindWorkspaceCreated EventKind = "tenancy.workspace_created"
 
 	// Self-healing events

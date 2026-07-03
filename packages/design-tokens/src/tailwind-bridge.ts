@@ -18,13 +18,6 @@
  */
 
 import {
-  accent,
-  blocked,
-  neutral,
-  quarantined,
-  recovered,
-  safe,
-  warning,
   cssCustomProperties as colorCustomProperties,
   type ColorScale,
 } from "./colors";
@@ -71,16 +64,6 @@ export interface SemanticTailwindColor {
 }
 
 export type TailwindSemanticColors = Readonly<Record<SemanticPaletteName, SemanticTailwindColor>>;
-
-const PALETTES: Readonly<Record<SemanticPaletteName, ColorScale>> = {
-  safe,
-  warning,
-  blocked,
-  recovered,
-  quarantined,
-  neutral,
-  accent,
-};
 
 /**
  * Build the `theme.extend.colors` object for `tailwind.config.ts`.

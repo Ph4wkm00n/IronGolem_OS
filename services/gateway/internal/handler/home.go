@@ -50,20 +50,20 @@ func NewHomeHandler(logger *slog.Logger, eventStore EventStore, connMgr *connect
 
 // HomeWorkspaceInfo mirrors apps/web/src/_mocks/home.ts::WorkspaceInfo.
 type HomeWorkspaceInfo struct {
-	Name          string `json:"name"`
-	Initials      string `json:"initials"`
-	Region        string `json:"region"`
-	UptimeHours   int    `json:"uptimeHours"`
-	UptimeStreak  string `json:"uptimeStreak"`
-	LastSync      string `json:"lastSync"`
+	Name         string `json:"name"`
+	Initials     string `json:"initials"`
+	Region       string `json:"region"`
+	UptimeHours  int    `json:"uptimeHours"`
+	UptimeStreak string `json:"uptimeStreak"`
+	LastSync     string `json:"lastSync"`
 }
 
 // HomeHeartbeat mirrors HeartbeatState.
 type HomeHeartbeat struct {
-	Status        string             `json:"status"` // healthy | degraded | down
-	SystemsGreen  int                `json:"systemsGreen"`
-	SystemsTotal  int                `json:"systemsTotal"`
-	OneDegraded   HomeOneDegraded    `json:"oneDegraded"`
+	Status       string          `json:"status"` // healthy | degraded | down
+	SystemsGreen int             `json:"systemsGreen"`
+	SystemsTotal int             `json:"systemsTotal"`
+	OneDegraded  HomeOneDegraded `json:"oneDegraded"`
 }
 
 type HomeOneDegraded struct {
@@ -126,13 +126,13 @@ type HomeEventItem struct {
 
 // HomeResponse is the full payload the v2 Home page consumes.
 type HomeResponse struct {
-	Workspace        HomeWorkspaceInfo            `json:"workspace"`
-	Heartbeat        HomeHeartbeat                `json:"heartbeat"`
-	Teams            []HomeTeam                   `json:"teams"`
-	TrustHistory     map[string][]int             `json:"trustHistory"`
-	Safety           HomeSafety                   `json:"safety"`
-	ResearchFindings []HomeResearchFinding        `json:"researchFindings"`
-	Events           []HomeEventItem              `json:"events"`
+	Workspace        HomeWorkspaceInfo     `json:"workspace"`
+	Heartbeat        HomeHeartbeat         `json:"heartbeat"`
+	Teams            []HomeTeam            `json:"teams"`
+	TrustHistory     map[string][]int      `json:"trustHistory"`
+	Safety           HomeSafety            `json:"safety"`
+	ResearchFindings []HomeResearchFinding `json:"researchFindings"`
+	Events           []HomeEventItem       `json:"events"`
 }
 
 // ListHome handles GET /api/v1/home. Returns the dashboard payload for

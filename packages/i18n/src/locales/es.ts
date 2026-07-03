@@ -4,7 +4,9 @@
 
 import type { en } from "./en";
 
-type TranslationKeys = typeof en;
+// Keyed on en (source of truth) for completeness checking, but values are
+// free-form strings — `typeof en` would demand the English literals themselves.
+type TranslationKeys = { readonly [K in keyof typeof en]: string };
 
 export const es: TranslationKeys = {
   // ---------------------------------------------------------------------------

@@ -208,13 +208,13 @@ type TrustScorer struct {
 func NewTrustScorer(logger *slog.Logger) *TrustScorer {
 	return &TrustScorer{
 		knownDomains: map[string]float64{
-			"reuters.com":     0.9,
-			"apnews.com":      0.9,
-			"nature.com":      0.95,
-			"arxiv.org":       0.85,
-			"github.com":      0.8,
+			"reuters.com":       0.9,
+			"apnews.com":        0.9,
+			"nature.com":        0.95,
+			"arxiv.org":         0.85,
+			"github.com":        0.8,
 			"stackoverflow.com": 0.75,
-			"wikipedia.org":   0.7,
+			"wikipedia.org":     0.7,
 		},
 		logger: logger,
 	}

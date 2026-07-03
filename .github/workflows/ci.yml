@@ -87,25 +87,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
       - name: Install pnpm
         uses: pnpm/action-setup@v5
         with:
           version: 9
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      # Package test scripts run `bun test` (repo convention).
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      # No `|| true` here: this job exists to fail when TypeScript breaks.
+      # (The pre-v0.4 swallowing hid a workspace-wide broken lint setup and
+      # type errors in packages/i18n for two releases.)
+      #
+      # Build runs FIRST: packages that consume workspace siblings via
+      # project references (plugin-sdk -> schema) typecheck against the
+      # sibling's dist output, which must exist.
       - name: Build packages
         run: |
-          pnpm --filter @irongolem/design-tokens build 2>/dev/null || true
-          pnpm --filter @irongolem/schema build 2>/dev/null || true
-          pnpm --filter @irongolem/ui build 2>/dev/null || true
-          pnpm --filter @irongolem/web build 2>/dev/null || true
+          pnpm --filter @irongolem/design-tokens build
+          pnpm --filter @irongolem/schema build
+          pnpm --filter @irongolem/ui build
+          pnpm --filter @irongolem/web build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test packages
+        run: pnpm --filter @irongolem/design-tokens test
 
   security-scan:
     name: Security Scan

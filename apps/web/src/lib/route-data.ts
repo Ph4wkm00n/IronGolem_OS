@@ -101,7 +101,7 @@ export function useRouteData<T>(
       // request from a previous mount can't smear state across mounts.
       invocationRef.current++;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are caller-supplied by design
   }, deps);
 
   return { status, data, error, reload: run };

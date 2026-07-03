@@ -75,6 +75,7 @@ type terminalResponse struct {
 	execute       *ipc.ExecutePlanResponse
 	ping          *ipc.PingResponse
 	listProviders *ipc.ListProvidersResponse // v0.3 Step 3
+	llmCall       *ipc.LlmCallResponse       // v0.4
 	err           error
 }
 
@@ -107,7 +108,6 @@ type Client struct {
 	// cheap; writes go through stateMu.
 	stateMu sync.RWMutex
 	state   clientState
-
 }
 
 type clientState int
@@ -361,6 +361,14 @@ func (c *Client) runReader(stdout io.ReadCloser) {
 			}
 			c.deliverTerminal(resp.RequestID, terminalResponse{listProviders: &resp})
 
+		case ipc.KindLlmCallResponse:
+			var resp ipc.LlmCallResponse
+			if err := json.Unmarshal(line, &resp); err != nil {
+				c.logger.Warn("bad llm_call response", slog.String("error", err.Error()))
+				continue
+			}
+			c.deliverTerminal(resp.RequestID, terminalResponse{llmCall: &resp})
+
 		default:
 			c.logger.Warn("unknown message kind", slog.String("kind", env.Kind))
 		}
@@ -579,6 +587,60 @@ func (c *Client) ListProviders(ctx context.Context) (*ipc.ListProvidersResponse,
 			return nil, errors.New("runtime: list_providers response mismatch")
 		}
 		return t.listProviders, nil
+	case <-ctx.Done():
+		c.unregister(reqID)
+		return nil, ctx.Err()
+	}
+}
+
+// LlmCall sends a direct single-turn model request (v0.4) and blocks for
+// the terminal response. No plan events are produced — this is the seam
+// hidden background classification (commitments extraction) rides on.
+// Callers own their own timeout via ctx; model latency is theirs to
+// budget, so no client-level default is applied beyond the context.
+func (c *Client) LlmCall(ctx context.Context, workspaceID, purpose, system, prompt string, maxTokens uint32) (*ipc.LlmCallResponse, error) {
+	if !c.acceptingWork() {
+		return nil, ErrRuntimeUnavailable
+	}
+
+	reqID := c.newID()
+	pr := &pendingRequest{
+		kind: ipc.KindLlmCallRequest,
+		done: make(chan terminalResponse, 1),
+	}
+	if err := c.register(reqID, pr); err != nil {
+		return nil, err
+	}
+
+	req := ipc.LlmCallRequest{
+		Kind:        ipc.KindLlmCallRequest,
+		RequestID:   reqID,
+		WorkspaceID: workspaceID,
+		Purpose:     purpose,
+		System:      system,
+		Prompt:      prompt,
+		MaxTokens:   maxTokens,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		c.unregister(reqID)
+		return nil, fmt.Errorf("runtime: marshal llm_call: %w", err)
+	}
+
+	if err := c.send(ctx, body); err != nil {
+		c.unregister(reqID)
+		return nil, err
+	}
+
+	select {
+	case t := <-pr.done:
+		if t.err != nil {
+			return nil, t.err
+		}
+		if t.llmCall == nil || t.llmCall.RequestID != reqID {
+			return nil, errors.New("runtime: llm_call response mismatch")
+		}
+		return t.llmCall, nil
 	case <-ctx.Done():
 		c.unregister(reqID)
 		return nil, ctx.Err()

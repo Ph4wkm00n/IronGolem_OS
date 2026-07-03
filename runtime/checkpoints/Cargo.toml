@@ -16,3 +16,5 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 rusqlite = { workspace = true }
 async-trait = { workspace = true }
+# Already resolved in the workspace lockfile (0.11.0) via existing deps.
+sha2 = "0.11"

@@ -9,6 +9,7 @@ pub mod hook;
 pub mod ipc;
 pub mod pg_store;
 pub mod plan;
+pub mod plugin;
 pub mod policy;
 pub mod risk;
 pub mod store;

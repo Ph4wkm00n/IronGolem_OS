@@ -1,14 +1,27 @@
-.PHONY: all build test lint clean dev test-visual check-real-api smoke-e2e smoke-telegram smoke-llm
+.PHONY: all build test lint check fmt clean dev test-visual check-real-api smoke-e2e smoke-telegram smoke-llm
 
 # --- Top-level targets ---
 
 all: build
 
-build: build-rust build-go build-web
+build: build-rust build-go build-connectors build-web
 
-test: test-rust test-go test-web
+test: test-rust test-go test-connectors test-web
 
-lint: lint-rust lint-go lint-web
+lint: lint-rust lint-go lint-connectors lint-web
+
+# Fast feedback: type/vet-level checking without full builds or tests.
+check:
+	cargo check --workspace
+	cd services && go vet ./...
+	cd connectors && go vet ./...
+	pnpm typecheck
+
+# Write-mode formatting across all three stacks (lint only checks).
+fmt:
+	cargo fmt
+	cd services && gofmt -w .
+	cd connectors && gofmt -w .
 
 clean: clean-rust clean-go clean-web
 
@@ -86,6 +99,9 @@ build-connectors:
 
 test-connectors:
 	cd connectors && go test ./... -v
+
+lint-connectors:
+	cd connectors && go vet ./...
 
 # --- Frontend visual regression + API smoke checks ---
 

@@ -1,6 +1,5 @@
 import React from "react";
-import type { Recipe, RiskLevel } from "@irongolem/schema";
-import { safe, blocked, warning, accent } from "@irongolem/design-tokens";
+import type { RiskLevel } from "@irongolem/schema";
 
 export interface SafetyCardProps {
   /** Items the recipe can access. */

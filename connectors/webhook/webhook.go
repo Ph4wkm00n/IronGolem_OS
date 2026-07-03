@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	defaultRetryCount  = 3
-	defaultMethod      = "POST"
-	baseBackoffDelay   = 1 * time.Second
-	maxBackoffDelay    = 30 * time.Second
+	defaultRetryCount = 3
+	defaultMethod     = "POST"
+	baseBackoffDelay  = 1 * time.Second
+	maxBackoffDelay   = 30 * time.Second
 )
 
 // Connector implements connectors.Connector for generic webhook/API

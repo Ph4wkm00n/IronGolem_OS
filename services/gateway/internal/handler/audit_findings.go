@@ -156,4 +156,3 @@ func (e *AuditFindingEmitter) EmitAuditFinding(_ context.Context, f audit.Stored
 
 // Compile-time check: the emitter satisfies audit.EventEmitter.
 var _ audit.EventEmitter = (*AuditFindingEmitter)(nil)
-

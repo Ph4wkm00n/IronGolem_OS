@@ -1,10 +1,10 @@
 // Package internal implements the self-healing engine for IronGolem OS.
 //
 // The healer performs escalating recovery when services degrade:
-//   1. Retry the failed operation
-//   2. Restart the service/connector
-//   3. Restore last known good configuration
-//   4. Escalate to user via notification
+//  1. Retry the failed operation
+//  2. Restart the service/connector
+//  3. Restore last known good configuration
+//  4. Escalate to user via notification
 package internal
 
 import (

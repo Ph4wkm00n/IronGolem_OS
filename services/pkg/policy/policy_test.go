@@ -244,8 +244,8 @@ func TestLayer4EnabledDeniesUntilImplemented(t *testing.T) {
 // only used to exercise the engine's wiring; the SQLite-backed impl gets
 // its own integration tests in services/gateway/internal/policy.
 type fakeChannelStore struct {
-	rules    map[string]ChannelRule // keyed "channel|action"
-	hasRules bool
+	rules     map[string]ChannelRule // keyed "channel|action"
+	hasRules  bool
 	lookupErr error
 	hasErr    error
 }

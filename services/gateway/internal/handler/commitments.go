@@ -201,14 +201,14 @@ func NewCommitmentEventEmitter(store EventStore) *CommitmentEventEmitter {
 // events. Mirrors the v2 frontend's expected payload shape — keep in
 // sync with the schema-side type when it lands in Step 7.
 type commitmentEventPayload struct {
-	CommitmentID  string                              `json:"commitmentId"`
-	Kind          commitments.CommitmentKind          `json:"kind"`
-	Sensitivity   commitments.CommitmentSensitivity   `json:"sensitivity"`
-	Status        commitments.CommitmentStatus        `json:"status"`
-	Reason        string                              `json:"reason"`
-	SuggestedText string                              `json:"suggestedText"`
-	EarliestMs    int64                               `json:"earliestMs"`
-	LatestMs      int64                               `json:"latestMs"`
+	CommitmentID  string                            `json:"commitmentId"`
+	Kind          commitments.CommitmentKind        `json:"kind"`
+	Sensitivity   commitments.CommitmentSensitivity `json:"sensitivity"`
+	Status        commitments.CommitmentStatus      `json:"status"`
+	Reason        string                            `json:"reason"`
+	SuggestedText string                            `json:"suggestedText"`
+	EarliestMs    int64                             `json:"earliestMs"`
+	LatestMs      int64                             `json:"latestMs"`
 }
 
 func (e *CommitmentEventEmitter) emit(kind events.EventKind, c commitments.Commitment) error {

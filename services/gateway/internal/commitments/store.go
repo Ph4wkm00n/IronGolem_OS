@@ -374,14 +374,14 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(r rowScanner) (Commitment, error) { return scan(r) }
+func scanRow(r rowScanner) (Commitment, error)  { return scan(r) }
 func scanRows(r rowScanner) (Commitment, error) { return scan(r) }
 
 func scan(r rowScanner) (Commitment, error) {
 	var (
-		c                 Commitment
-		kind, sens, stat  string
-		timezone          sql.NullString
+		c                Commitment
+		kind, sens, stat string
+		timezone         sql.NullString
 	)
 	err := r.Scan(
 		&c.ID, &c.WorkspaceID, &c.TenantID, &kind, &sens, &stat,

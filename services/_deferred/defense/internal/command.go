@@ -54,17 +54,17 @@ const (
 // CommandApprovalRequest represents a request for admin approval of a
 // blocked command.
 type CommandApprovalRequest struct {
-	ID          string         `json:"id"`
-	Command     string         `json:"command"`
-	Pattern     string         `json:"pattern"`
-	Reason      string         `json:"reason"`
+	ID          string          `json:"id"`
+	Command     string          `json:"command"`
+	Pattern     string          `json:"pattern"`
+	Reason      string          `json:"reason"`
 	Severity    CommandSeverity `json:"severity"`
-	RequestedBy string         `json:"requested_by"`
-	RequestedAt time.Time      `json:"requested_at"`
-	Status      ApprovalStatus `json:"status"`
-	ReviewedBy  string         `json:"reviewed_by,omitempty"`
-	ReviewedAt  *time.Time     `json:"reviewed_at,omitempty"`
-	TTL         time.Duration  `json:"ttl_ns"`
+	RequestedBy string          `json:"requested_by"`
+	RequestedAt time.Time       `json:"requested_at"`
+	Status      ApprovalStatus  `json:"status"`
+	ReviewedBy  string          `json:"reviewed_by,omitempty"`
+	ReviewedAt  *time.Time      `json:"reviewed_at,omitempty"`
+	TTL         time.Duration   `json:"ttl_ns"`
 }
 
 // CommandAuditEntry records a single command execution attempt.

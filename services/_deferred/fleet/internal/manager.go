@@ -59,7 +59,7 @@ type HealthReport struct {
 	InstanceID        string                 `json:"instance_id"`
 	ReportedAt        time.Time              `json:"reported_at"`
 	ServiceStatuses   []ServiceStatusEntry   `json:"service_statuses"`
-	ConnectorStatuses []ConnectorStatusEntry  `json:"connector_statuses"`
+	ConnectorStatuses []ConnectorStatusEntry `json:"connector_statuses"`
 	Resources         ResourceUsage          `json:"resources"`
 	ActiveRecipes     int                    `json:"active_recipes"`
 	ActiveSquads      int                    `json:"active_squads"`
@@ -67,13 +67,13 @@ type HealthReport struct {
 
 // FleetOverview is the aggregated summary returned by the dashboard endpoint.
 type FleetOverview struct {
-	TotalInstances int                       `json:"total_instances"`
-	ByStatus       map[InstanceStatus]int    `json:"by_status"`
-	ByRegion       map[string]int            `json:"by_region"`
-	AverageHealth  float64                   `json:"average_health"`
-	TotalRecipes   int                       `json:"total_recipes"`
-	TotalSquads    int                       `json:"total_squads"`
-	GeneratedAt    time.Time                 `json:"generated_at"`
+	TotalInstances int                    `json:"total_instances"`
+	ByStatus       map[InstanceStatus]int `json:"by_status"`
+	ByRegion       map[string]int         `json:"by_region"`
+	AverageHealth  float64                `json:"average_health"`
+	TotalRecipes   int                    `json:"total_recipes"`
+	TotalSquads    int                    `json:"total_squads"`
+	GeneratedAt    time.Time              `json:"generated_at"`
 }
 
 // FleetManager manages the lifecycle and health tracking of fleet instances.

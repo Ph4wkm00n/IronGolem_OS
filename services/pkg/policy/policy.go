@@ -25,10 +25,10 @@ type PolicyLayer int
 
 const (
 	LayerGatewayIdentity    PolicyLayer = iota + 1 // Layer 1
-	LayerGlobalToolPolicy                           // Layer 2
-	LayerPerAgentPermission                         // Layer 3
-	LayerPerChannelRestrict                         // Layer 4
-	LayerAdminControls                              // Layer 5
+	LayerGlobalToolPolicy                          // Layer 2
+	LayerPerAgentPermission                        // Layer 3
+	LayerPerChannelRestrict                        // Layer 4
+	LayerAdminControls                             // Layer 5
 )
 
 // String returns a human-readable name for the policy layer.
@@ -207,9 +207,9 @@ func (c *gatewayIdentityChecker) Check(_ context.Context, req EvalRequest) (Deci
 // blockedTools is the system-wide deny list. In production this would be
 // loaded from configuration.
 var blockedTools = map[string]bool{
-	"tool.shell_exec":    true,
-	"tool.raw_sql":       true,
-	"tool.network_scan":  true,
+	"tool.shell_exec":   true,
+	"tool.raw_sql":      true,
+	"tool.network_scan": true,
 }
 
 type globalToolPolicyChecker struct{}

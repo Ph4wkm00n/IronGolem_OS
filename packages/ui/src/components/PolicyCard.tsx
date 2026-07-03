@@ -1,7 +1,6 @@
 import React from "react";
 import type {
   PolicyLayer,
-  PolicyDecision,
   PolicyEffect,
   PolicyEvaluation,
 } from "@irongolem/schema";

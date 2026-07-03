@@ -30,9 +30,9 @@ const (
 	TypeTelegram ConnectorType = "telegram"
 	TypeWebhook  ConnectorType = "webhook"
 	// v0.3 Step 8 additions.
-	TypeSlack    ConnectorType = "slack"
-	TypeDiscord  ConnectorType = "discord"
-	TypeSignal   ConnectorType = "signal"
+	TypeSlack   ConnectorType = "slack"
+	TypeDiscord ConnectorType = "discord"
+	TypeSignal  ConnectorType = "signal"
 )
 
 // Message represents a normalized message from any connector.
