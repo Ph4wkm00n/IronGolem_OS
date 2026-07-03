@@ -177,6 +177,12 @@ func main() {
 	auditRegistry.MustRegister(probes.NewTrustModel())
 	auditRegistry.MustRegister(probes.NewChannelDMPolicy(db))
 	auditRegistry.MustRegister(probes.NewConnectorHealthDrift())
+	// v0.4 — ports of openclaw's highest-leverage probes (2026-07 scan):
+	// exposure composition (channel openness x action privilege),
+	// state-file permissions, and gateway bind/secret drift.
+	auditRegistry.MustRegister(probes.NewExposureComposition(db))
+	auditRegistry.MustRegister(probes.NewFSPermissions(dbPath))
+	auditRegistry.MustRegister(probes.NewGatewayExposure())
 	auditFindingStore := audit.NewSQLiteFindingStore(db)
 	auditEmitter := handler.NewAuditFindingEmitter(eventStore)
 	auditRuntime := audit.NewRuntime(auditRegistry, auditFindingStore, auditEmitter, logger, audit.RuntimeConfig{})
