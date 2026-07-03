@@ -98,6 +98,10 @@ jobs:
           node-version: "24"
           cache: pnpm
 
+      # Package test scripts run `bun test` (repo convention).
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
