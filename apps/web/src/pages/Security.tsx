@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { PolicyCard, RiskBadge } from "@irongolem/ui";
+import { PolicyCard } from "@irongolem/ui";
 import type { Event, PolicyEvaluation } from "@irongolem/schema";
 import api from "../lib/api";
 

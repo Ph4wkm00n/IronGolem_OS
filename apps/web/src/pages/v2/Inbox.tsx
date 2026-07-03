@@ -30,10 +30,6 @@ import {
   type InboxRisk as Risk,
   type InboxStatus as Status,
   type InboxDraft as Draft,
-  type EmailDraft,
-  type CalendarDraft,
-  type WebhookDraft,
-  type TelegramDraft,
   type InboxSafetyShape as SafetyShape,
   type AuditStep,
 } from "../../lib/api";

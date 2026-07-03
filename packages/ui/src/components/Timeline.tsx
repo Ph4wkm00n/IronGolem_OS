@@ -1,5 +1,4 @@
 import React from "react";
-import type { EventKind } from "@irongolem/schema";
 
 /** Visual states for timeline entries. */
 export type TimelineState =
