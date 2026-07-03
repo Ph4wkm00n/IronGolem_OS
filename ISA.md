@@ -3,8 +3,8 @@ project: IronGolem_OS
 task: "Project ISA — IronGolem OS (active task: v0.4 adoption wave)"
 effort: E3
 effort_source: classifier
-phase: build
-progress: 11/38
+phase: complete
+progress: 38/38
 mode: interactive
 started: 2026-07-02T22:25:39Z
 updated: 2026-07-02T22:25:39Z
@@ -45,16 +45,16 @@ Ship the v0.4 adoption wave: port the hermes checkpoint shared-store into a new 
 ### Research
 - [x] ISC-1: Fresh openclaw clone examined; structured report with exact file paths exists covering plugins, audit taxonomy, commitments, inbound channels, post-May-16 drift
 - [x] ISC-2: Fresh hermes-agent clone examined; structured report with exact file paths exists covering checkpoint_manager, ProviderProfile drift, PlatformEntry drift, scheduler
-- [ ] ISC-3: Adopt/skip decision recorded in ## Decisions for every candidate pattern surfaced by ISC-1/ISC-2
+- [x] ISC-3: Adopt/skip decision recorded in ## Decisions for every candidate pattern surfaced by ISC-1/ISC-2
 
 ### Checkpoint shared-store (hermes port, Rust)
-- [ ] ISC-4: `runtime/checkpoints/` crate exists and is a member of the Cargo workspace
-- [ ] ISC-5: Content-addressable object store: identical content written twice yields one stored object (dedup unit test passes)
-- [ ] ISC-6: Store layout uses `refs/<id>` + content-addressed objects, mirroring hermes shared-store design
-- [ ] ISC-7: Public API supports create / restore / list checkpoint operations with `Result` error handling
-- [ ] ISC-8: GC/prune removes unreferenced objects; referenced objects survive (unit test passes)
-- [ ] ISC-9: `cargo test -p <checkpoints-crate>` passes
-- [ ] ISC-10: Anti: no `unwrap()` in the new crate's non-test code (`rg 'unwrap\(\)'` clean outside `#[cfg(test)]`)
+- [x] ISC-4: `runtime/checkpoints/` crate exists and is a member of the Cargo workspace
+- [x] ISC-5: Content-addressable object store: identical content written twice yields one stored object (dedup unit test passes)
+- [x] ISC-6: Store layout uses `refs/<id>` + content-addressed objects, mirroring hermes shared-store design
+- [x] ISC-7: Public API supports create / restore / list checkpoint operations with `Result` error handling
+- [x] ISC-8: GC/prune removes unreferenced objects; referenced objects survive (unit test passes)
+- [x] ISC-9: `cargo test -p <checkpoints-crate>` passes
+- [x] ISC-10: Anti: no `unwrap()` in the new crate's non-test code (`rg 'unwrap\(\)'` clean outside `#[cfg(test)]`)
 
 ### Inbound connectors
 - [x] ISC-11: Slack inbound via Socket Mode worker: apps.connections.open → wss, immediate envelope ack, clean outbound-only skip when app token absent (refined per Advisor decision 2026-07-02)
@@ -65,36 +65,36 @@ Ship the v0.4 adoption wave: port the hermes checkpoint shared-store into a new 
 - [x] ISC-16: Anti: inbound handlers reject unauthenticated/unsigned payloads (negative test passes)
 
 ### LLM commitment extraction
-- [ ] ISC-17: New direct-LLM IPC verb exists in `runtime/core/src/ipc.rs` and is handled by runtimed
-- [ ] ISC-18: Go client method in `runtime/client.go` exercises the verb
-- [ ] ISC-19: Commitments LLM extractor produces structured commitments from a transcript when enabled
-- [ ] ISC-20: Extractor falls back to the heuristic path when runtime/LLM unavailable (test passes)
-- [ ] ISC-21: LLM extraction is opt-in via config; default remains heuristic
-- [ ] ISC-22: Go tests for extractor selection + fallback pass
+- [x] ISC-17: New direct-LLM IPC verb exists in `runtime/core/src/ipc.rs` and is handled by runtimed
+- [x] ISC-18: Go client method in `runtime/client.go` exercises the verb
+- [x] ISC-19: Commitments LLM extractor produces structured commitments from a transcript when enabled
+- [x] ISC-20: Extractor falls back to the heuristic path when runtime/LLM unavailable (test passes)
+- [x] ISC-21: LLM extraction is opt-in via config; default remains heuristic
+- [x] ISC-22: Go tests for extractor selection + fallback pass
 
 ### Audit probe expansion
-- [ ] ISC-23: ≥3 new probes ported from openclaw's taxonomy (selected from explorer report) under `services/gateway/internal/audit/probes/`
-- [ ] ISC-24: New probes registered in the audit ticker and persist findings to `gateway_audit_findings`
-- [ ] ISC-25: Each new probe has table-driven tests covering info/warning/critical paths
+- [x] ISC-23: ≥3 new probes ported from openclaw's taxonomy (selected from explorer report) under `services/gateway/internal/audit/probes/`
+- [x] ISC-24: New probes registered in the audit ticker and persist findings to `gateway_audit_findings`
+- [x] ISC-25: Each new probe has table-driven tests covering info/warning/critical paths
 
 ### Plugin groundwork
-- [ ] ISC-26: Plugin permission-manifest schema exists in `packages/schema` (TS) aligned with a Rust counterpart type
-- [ ] ISC-27: Manifest validation rejects undeclared permissions (unit tests in both languages pass)
+- [x] ISC-26: Plugin permission-manifest schema exists in `packages/schema` (TS) aligned with a Rust counterpart type
+- [x] ISC-27: Manifest validation rejects undeclared permissions (unit tests in both languages pass)
 
 ### Build improvements
 - [x] ISC-28: `make check` target exists: fast typecheck + `go vet` + `cargo clippy` without full builds
 - [x] ISC-29: `make fmt` target exists formatting all three stacks
-- [ ] ISC-30: `make build` passes after all changes
-- [ ] ISC-31: `make test` passes across Rust, Go, connectors, web
-- [ ] ISC-32: `cargo clippy --workspace` reports no warnings introduced by this wave
-- [ ] ISC-33: `go vet ./...` clean in services/ and connectors/
+- [x] ISC-30: `make build` passes after all changes
+- [x] ISC-31: `make test` passes across Rust, Go, connectors, web
+- [x] ISC-32: `cargo clippy --workspace` reports no warnings introduced by this wave
+- [x] ISC-33: `go vet ./...` clean in services/ and connectors/
 - [x] ISC-34: `pnpm lint` clean
 
 ### Cross-cutting
-- [ ] ISC-35: Anti: no v0.3 pattern duplicated (no second registry/provider seam/hook schema)
-- [ ] ISC-36: Anti: no Rust/Go/TS responsibility crosses domains (checkpoints stay in Rust; connectors stay in Go)
-- [ ] ISC-37: CHANGELOG gains a v0.4 wave entry documenting adoptions with upstream attributions
-- [ ] ISC-38: `graphify update .` run after code changes completes successfully
+- [x] ISC-35: Anti: no v0.3 pattern duplicated (no second registry/provider seam/hook schema)
+- [x] ISC-36: Anti: no Rust/Go/TS responsibility crosses domains (checkpoints stay in Rust; connectors stay in Go)
+- [x] ISC-37: CHANGELOG gains a v0.4 wave entry documenting adoptions with upstream attributions
+- [x] ISC-38: `graphify update .` run after code changes completes successfully
 
 ## Test Strategy
 
@@ -156,3 +156,28 @@ Ship the v0.4 adoption wave: port the hermes checkpoint shared-store into a new 
 - ISC-28: Bash — `make check` exit 0 (cargo check + go vet ×2 + pnpm typecheck)
 - ISC-29: Bash — `make fmt` ran all three stacks; `gofmt -l` now returns 0 files
 - ISC-34: Bash — `pnpm lint` exit 0 (0 errors, 3 exhaustive-deps warnings by design)
+- ISC-3: Read — ADOPT/SKIP register in ## Decisions covers all candidates from three explorer reports
+- ISC-4..9: Bash — `cargo test -p irongolem-checkpoints` 15 passed (dedup via count-objects, CAS conflict, restore round-trip, prune, git-absent)
+- ISC-10: Bash — `rg unwrap\(\)` first hit line 917; test module starts line 900 — zero production unwraps
+- ISC-17: Bash — cargo test runtimed 11 passed incl. direct_llm_call_completes/failure tests; verb dispatched in main.rs
+- ISC-18: Read — Client.LlmCall in services/gateway/internal/runtime/client.go; services build green
+- ISC-19..22: Bash — `go test ./gateway/internal/commitments/` ok (14 LLM extractor cases: boundaries 0.72/0.719, 0.86/0.859, cooldown, parse-fallback, enum rejection)
+- ISC-23..25: Bash — `go test ./gateway/internal/audit/...` ok (3 probes, 16 cases incl. negative/critical paths); registered in main.go ticker
+- ISC-26..27: Bash — bun test plugin-sdk 8 passed; cargo test core plugin 4 passed (wire-format sync, undeclared rejection)
+- ISC-30: Bash — `make build` exit 0 (now includes connectors)
+- ISC-31: Bash — `make test` exit 0, zero FAIL across Rust/Go/connectors/web
+- ISC-32: Bash — `cargo clippy --workspace -- -D warnings` Finished clean
+- ISC-33: Bash — `go vet ./...` clean in services and connectors
+- ISC-35: Read — extended existing registry/audit/commitments/provider seams; no duplicate subsystems created
+- ISC-36: Read — checkpoints Rust-only; connectors/probes/extractor Go-only; schema/plugin-sdk TS with Rust mirror types only
+- ISC-37: Read — CHANGELOG.md:9 "v0.4 — Adoption Wave 2" with per-component attributions
+- ISC-38: Bash — `graphify update .` exit 0 "Code graph updated"
+
+## Changelog
+
+- 2026-07-02 — conjectured: Slack inbound should use the Events API webhook (as the v0.3 stub comments planned, signingSecret reserved for it). refuted by: advisor exposure analysis — a public HTTP endpoint adds exactly the inbound surface the new exposure_composition/gateway_exposure probes exist to flag, and it breaks the one-Worker-pattern consistency across the three connectors. learned: when a wave ships both ingress AND exposure auditing, choose the ingress that the audit would score best — the subsystems must not indict each other. criterion now: ISC-11 refined to Socket Mode worker with clean outbound-only skip.
+
+## Decisions (post-VERIFY)
+
+- 2026-07-02 — Advisor final pass: no fatal gaps. Actioned: CHANGELOG labels GitSharedStore "staged" (crate complete, plan-execution wiring is a release-gate item) and inbound as unit-verified with live-protocol smoke deferred (no Slack/Discord/Signal credentials in this environment). Branch pushed; PR #89 opened for server-side CI validation. Follow-up (release gate before tagging v0.4): [1] live handshake smoke per connector, [2] Checkpoint plan-node → GitSharedStore wiring.
+- 2026-07-02 — Delegation floor: met via 3× Explore (research) + inbound implementation agent + checkpoint implementation agent. Forge was invoked per the E3 auto-include binding but stalled on codex exec (environment: Node TLS breakage from unexpanded $HOME in NODE_EXTRA_CA_CERTS + 600s subagent stall watchdog); work reassigned to a Claude-family agent.
