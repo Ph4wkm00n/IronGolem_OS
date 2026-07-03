@@ -6,9 +6,11 @@
 // path of shelling out to `signal-cli`, which most operators already
 // have installed for verified-account flows.
 //
-// v0.3 ships the OUTBOUND path (Send → `signal-cli send`). INBOUND
-// requires `signal-cli daemon --receive-mode` + JSON-RPC subscription,
-// which lands in v0.4.
+// v0.3 shipped the OUTBOUND path (Send → `signal-cli send`). v0.4 adds
+// INBOUND via a long-running `signal-cli receive --output=json`
+// subprocess — see inbound.go. If Connect succeeds (binary + account
+// present), inbound is available; without them the connector simply
+// never connects, exactly as in v0.3.
 package signal
 
 import (
@@ -31,6 +33,13 @@ type Connector struct {
 
 	msgCh chan *connectors.Message
 	done  chan struct{}
+
+	// receiveStarted guards the once-only inbound worker spawn.
+	// closeMsgOnce guarantees msgCh closes exactly once whether the
+	// worker or Disconnect gets there first.
+	receiveStarted bool
+	workerOwnsCh   bool
+	closeMsgOnce   sync.Once
 }
 
 func (c *Connector) Type() connectors.ConnectorType { return connectors.TypeSignal }
@@ -51,21 +60,34 @@ func (c *Connector) Connect(_ context.Context, config map[string]string) error {
 		return fmt.Errorf("signal: %s not found in PATH; install via `brew install signal-cli` or apt", binary)
 	}
 	c.cliPath = path
-	c.msgCh = make(chan *connectors.Message, 1)
+	c.msgCh = make(chan *connectors.Message, 64)
 	c.done = make(chan struct{})
+	c.receiveStarted = false
+	c.workerOwnsCh = false
+	c.closeMsgOnce = sync.Once{}
 	c.connected = true
 	return nil
 }
 
+// Disconnect signals shutdown. If the receive worker is running it owns
+// closing msgCh (it may still be mid-send); otherwise we close it here
+// so the gateway pump observes the shutdown either way.
 func (c *Connector) Disconnect(_ context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil
 	}
-	close(c.done)
-	close(c.msgCh)
 	c.connected = false
+	workerOwnsCh := c.workerOwnsCh
+	done := c.done
+	msgCh := c.msgCh
+	c.mu.Unlock()
+
+	close(done)
+	if !workerOwnsCh {
+		c.closeMsgOnce.Do(func() { close(msgCh) })
+	}
 	return nil
 }
 
@@ -122,19 +144,33 @@ func (c *Connector) Send(ctx context.Context, msg *connectors.Message) error {
 	return nil
 }
 
-// Receive returns a closed inbound channel — Signal inbound delivery
-// requires `signal-cli daemon` mode which v0.3 doesn't wire. The
-// closed channel makes the manager's pump exit cleanly instead of
-// blocking forever on an unused subscription.
-func (c *Connector) Receive(_ context.Context) (<-chan *connectors.Message, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// Receive returns the inbound message channel and starts the
+// long-lived `signal-cli receive` worker (connectors.StartWorker:
+// context cancellation, panic recovery, exponential-backoff restart).
+// Connect already guarantees the binary and account exist, so unlike
+// Slack there is no partial outbound-only configuration to detect.
+func (c *Connector) Receive(ctx context.Context) (<-chan *connectors.Message, error) {
+	c.mu.Lock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil, fmt.Errorf("signal: not connected")
 	}
-	ch := make(chan *connectors.Message)
-	close(ch)
-	return ch, nil
+	msgCh := c.msgCh
+	if c.receiveStarted {
+		c.mu.Unlock()
+		return msgCh, nil
+	}
+	c.receiveStarted = true
+	c.workerOwnsCh = true
+	done := c.done
+	c.mu.Unlock()
+
+	connectors.StartWorker(ctx, done,
+		connectors.WorkerConfig{Name: "signal-receive"},
+		c.runReceiveSession,
+		func() { c.closeMsgOnce.Do(func() { close(msgCh) }) },
+	)
+	return msgCh, nil
 }
 
-func (c *Connector) Capabilities() []string { return []string{"send"} }
+func (c *Connector) Capabilities() []string { return []string{"send", "receive"} }

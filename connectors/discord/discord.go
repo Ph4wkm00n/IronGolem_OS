@@ -3,9 +3,11 @@
 // v0.3 Step 8 of Plans/modular-puzzling-blum.md. Mirrors the structure
 // of `connectors/slack` and `connectors/telegram`.
 //
-// v0.3 ships the OUTBOUND path (Send → channels/{id}/messages)
-// end-to-end. INBOUND requires the Discord Gateway WebSocket, which
-// lands in v0.4 — see `Receive` for the contract.
+// v0.3 shipped the OUTBOUND path (Send → channels/{id}/messages)
+// end-to-end. v0.4 adds INBOUND via the Discord Gateway WebSocket —
+// see inbound.go for the session protocol (HELLO, IDENTIFY, heartbeat,
+// MESSAGE_CREATE dispatch) and the shared connectors worker that
+// reconnects with backoff.
 package discord
 
 import (
@@ -33,10 +35,18 @@ type Connector struct {
 	botToken   string
 	apiBase    string
 	httpClient *http.Client
+	selfID     string // our bot's user id from /users/@me; used to ignore self-messages
 
 	connected bool
 	msgCh     chan *connectors.Message
 	done      chan struct{}
+
+	// receiveStarted guards the once-only worker spawn. closeMsgOnce
+	// guarantees msgCh closes exactly once whether the gateway worker
+	// or Disconnect gets there first.
+	receiveStarted bool
+	workerOwnsCh   bool
+	closeMsgOnce   sync.Once
 }
 
 func (c *Connector) Type() connectors.ConnectorType { return connectors.TypeDiscord }
@@ -63,19 +73,32 @@ func (c *Connector) Connect(ctx context.Context, config map[string]string) error
 
 	c.msgCh = make(chan *connectors.Message, 64)
 	c.done = make(chan struct{})
+	c.receiveStarted = false
+	c.workerOwnsCh = false
+	c.closeMsgOnce = sync.Once{}
 	c.connected = true
 	return nil
 }
 
+// Disconnect signals shutdown. If the gateway worker is running it owns
+// closing msgCh (it may still be mid-send); otherwise close it here so
+// the gateway pump observes the shutdown either way.
 func (c *Connector) Disconnect(_ context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil
 	}
-	close(c.done)
-	close(c.msgCh)
 	c.connected = false
+	workerOwnsCh := c.workerOwnsCh
+	done := c.done
+	msgCh := c.msgCh
+	c.mu.Unlock()
+
+	close(done)
+	if !workerOwnsCh {
+		c.closeMsgOnce.Do(func() { close(msgCh) })
+	}
 	return nil
 }
 
@@ -128,24 +151,39 @@ func (c *Connector) Send(ctx context.Context, msg *connectors.Message) error {
 	return nil
 }
 
-// Receive returns the inbound channel.
-//
-// v0.3 status: stub. Real inbound delivery requires the Discord
-// Gateway WebSocket (wss://gateway.discord.gg) + identification +
-// heartbeat + event dispatch handling. Lands in v0.4 alongside the
-// Slack Events API receiver — both will likely share a "long-lived
-// connector worker" pattern that the current pump doesn't model yet.
-func (c *Connector) Receive(_ context.Context) (<-chan *connectors.Message, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// Receive returns the inbound message channel and starts the long-lived
+// Gateway WebSocket worker on first call (connectors.StartWorker:
+// context cancellation, panic recovery, exponential-backoff reconnect —
+// each reconnect re-identifies; see inbound.go).
+func (c *Connector) Receive(ctx context.Context) (<-chan *connectors.Message, error) {
+	c.mu.Lock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil, fmt.Errorf("discord: not connected")
 	}
-	return c.msgCh, nil
+	msgCh := c.msgCh
+	if c.receiveStarted {
+		c.mu.Unlock()
+		return msgCh, nil
+	}
+	c.receiveStarted = true
+	c.workerOwnsCh = true
+	done := c.done
+	c.mu.Unlock()
+
+	connectors.StartWorker(ctx, done,
+		connectors.WorkerConfig{Name: "discord-gateway"},
+		c.runGatewaySession,
+		func() { c.closeMsgOnce.Do(func() { close(msgCh) }) },
+	)
+	return msgCh, nil
 }
 
-func (c *Connector) Capabilities() []string { return []string{"send"} }
+func (c *Connector) Capabilities() []string { return []string{"send", "receive"} }
 
+// getMe validates the token against /users/@me and captures our own
+// user id so the inbound path can ignore self-messages. Called from
+// Connect with c.mu held.
 func (c *Connector) getMe(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+"/users/@me", nil)
 	if err != nil {
@@ -160,9 +198,15 @@ func (c *Connector) getMe(ctx context.Context) error {
 	if resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("invalid token (401 from /users/@me)")
 	}
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		raw, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(raw))
+	}
+	var me struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &me); err == nil {
+		c.selfID = me.ID
 	}
 	return nil
 }

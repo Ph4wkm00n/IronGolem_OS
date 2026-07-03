@@ -5,11 +5,11 @@
 // of `connectors/telegram` to keep the connector adapter pattern
 // uniform across channels.
 //
-// v0.3 ships the OUTBOUND path (Send → chat.postMessage) end-to-end so
-// the commitments runtime can fire reminders into Slack. INBOUND is
-// stubbed pending Events API webhook + request-signing plumbing — see
-// the TODO comments in `Receive` and the `connectors/slack/README.md`
-// for the v0.4 roadmap.
+// v0.3 shipped the OUTBOUND path (Send → chat.postMessage) end-to-end so
+// the commitments runtime can fire reminders into Slack. v0.4 adds the
+// INBOUND path via Socket Mode — see inbound.go. Inbound requires an
+// app-level token (xapp-...); without one the connector stays
+// outbound-only exactly as in v0.3.
 package slack
 
 import (
@@ -18,7 +18,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -35,13 +37,23 @@ type Connector struct {
 	mu sync.RWMutex
 
 	botToken      string
+	appToken      string // app-level token (xapp-...) for Socket Mode inbound; optional
 	apiBase       string
-	signingSecret string // reserved for Events API verification (v0.4)
+	signingSecret string // reserved for Events API verification (unused with Socket Mode)
 	httpClient    *http.Client
+	selfUserID    string // our bot's user id from auth.test; used to ignore self-messages
 
 	connected bool
 	msgCh     chan *connectors.Message
 	done      chan struct{}
+
+	// receiveStarted guards the once-only inbound startup (worker spawn
+	// or the one-time "inbound disabled" log). closeMsgOnce guarantees
+	// msgCh closes exactly once whether the worker or Disconnect gets
+	// there first.
+	receiveStarted bool
+	workerOwnsCh   bool
+	closeMsgOnce   sync.Once
 }
 
 // Type returns the canonical connector identifier.
@@ -50,11 +62,19 @@ func (c *Connector) Type() connectors.ConnectorType {
 }
 
 // Connect verifies the bot token via auth.test and stores config.
+//
+// config["app_token"] (fallback: IRONGOLEM_SLACK_APP_TOKEN) enables
+// Socket Mode inbound. It is optional — outbound-only remains a fully
+// supported configuration.
 func (c *Connector) Connect(ctx context.Context, config map[string]string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.botToken = config["bot_token"]
 	c.signingSecret = config["signing_secret"]
+	c.appToken = config["app_token"]
+	if c.appToken == "" {
+		c.appToken = os.Getenv(envAppToken)
+	}
 	c.apiBase = config["api_base"]
 	if c.apiBase == "" {
 		c.apiBase = defaultAPIBase
@@ -73,20 +93,32 @@ func (c *Connector) Connect(ctx context.Context, config map[string]string) error
 
 	c.msgCh = make(chan *connectors.Message, 64)
 	c.done = make(chan struct{})
+	c.receiveStarted = false
+	c.workerOwnsCh = false
+	c.closeMsgOnce = sync.Once{}
 	c.connected = true
 	return nil
 }
 
-// Disconnect closes the inbound channel.
+// Disconnect signals shutdown. If the Socket Mode worker is running it
+// owns closing msgCh (it may still be mid-send); otherwise we close it
+// here so the gateway pump observes the shutdown either way.
 func (c *Connector) Disconnect(_ context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil
 	}
-	close(c.done)
-	close(c.msgCh)
 	c.connected = false
+	workerOwnsCh := c.workerOwnsCh
+	done := c.done
+	msgCh := c.msgCh
+	c.mu.Unlock()
+
+	close(done)
+	if !workerOwnsCh {
+		c.closeMsgOnce.Do(func() { close(msgCh) })
+	}
 	return nil
 }
 
@@ -148,34 +180,59 @@ func (c *Connector) Send(ctx context.Context, msg *connectors.Message) error {
 	return nil
 }
 
-// Receive returns the inbound message channel.
-//
-// v0.3 status: the channel is wired (so the manager's pump doesn't
-// nil-deref) but no messages arrive on it. Inbound delivery requires:
-//
-//   1. A public HTTPS endpoint for the Slack Events API to POST to.
-//   2. Request signing verification using `signing_secret`.
-//   3. A normalizer that turns Slack message events into
-//      connectors.Message values and writes them to msgCh.
-//
-// All three land together in v0.4. The webhook handler will likely
-// live in `services/gateway/cmd/slack-webhook/main.go` so the gateway
-// itself doesn't have to grow per-channel route surface.
-func (c *Connector) Receive(_ context.Context) (<-chan *connectors.Message, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// Receive returns the inbound message channel and, when an app-level
+// token is configured, starts the long-lived Socket Mode worker
+// (connectors.StartWorker: context cancellation, panic recovery,
+// exponential-backoff reconnect). Without an app token inbound stays
+// silent — logged once — and the connector remains outbound-only,
+// exactly as in v0.3.
+func (c *Connector) Receive(ctx context.Context) (<-chan *connectors.Message, error) {
+	c.mu.Lock()
 	if !c.connected {
+		c.mu.Unlock()
 		return nil, fmt.Errorf("slack: not connected")
 	}
-	return c.msgCh, nil
+	msgCh := c.msgCh
+	if c.receiveStarted {
+		c.mu.Unlock()
+		return msgCh, nil
+	}
+	c.receiveStarted = true
+
+	if c.appToken == "" {
+		c.mu.Unlock()
+		slog.Info("slack: inbound disabled — no app-level token configured; connector is outbound-only",
+			slog.String("hint", "set "+envAppToken+" (xapp-...) to enable Socket Mode inbound"))
+		return msgCh, nil
+	}
+
+	c.workerOwnsCh = true
+	done := c.done
+	c.mu.Unlock()
+
+	connectors.StartWorker(ctx, done,
+		connectors.WorkerConfig{Name: "slack-socket-mode"},
+		c.runSocketSession,
+		func() { c.closeMsgOnce.Do(func() { close(msgCh) }) },
+	)
+	return msgCh, nil
 }
 
-// Capabilities reports what this connector can do.
+// Capabilities reports what this connector can do. "receive" is
+// advertised only when Socket Mode inbound is configured (app token
+// present); outbound-only setups report just "send".
 func (c *Connector) Capabilities() []string {
-	return []string{"send"} // "receive" lands in v0.4 with Events API wiring
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.appToken != "" {
+		return []string{"send", "receive"}
+	}
+	return []string{"send"}
 }
 
-// authTest validates the bot token by calling auth.test.
+// authTest validates the bot token by calling auth.test and captures
+// our own bot user id so the inbound path can ignore self-messages.
+// Called from Connect with c.mu held.
 func (c *Connector) authTest(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+"/auth.test", nil)
 	if err != nil {
@@ -192,8 +249,9 @@ func (c *Connector) authTest(ctx context.Context) error {
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(raw))
 	}
 	var parsed struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error"`
+		UserID string `json:"user_id"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return err
@@ -201,5 +259,6 @@ func (c *Connector) authTest(ctx context.Context) error {
 	if !parsed.OK {
 		return fmt.Errorf("auth.test: %s", parsed.Error)
 	}
+	c.selfUserID = parsed.UserID
 	return nil
 }

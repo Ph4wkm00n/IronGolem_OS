@@ -18,7 +18,9 @@ func Registration() connectors.Registration {
 		RequiredEnv: []string{envBotToken},
 		InstallHint: "Create a Discord application at https://discord.com/developers/applications, " +
 			"add a bot user, copy the bot token into IRONGOLEM_DISCORD_BOT_TOKEN, and invite the " +
-			"bot to your server with at least the 'Send Messages' permission.",
+			"bot to your server with at least the 'Send Messages' permission. For inbound " +
+			"messages, also enable the 'Message Content Intent' under Bot → Privileged Gateway " +
+			"Intents.",
 		ValidateConfig: func(cfg map[string]string) error {
 			if strings.TrimSpace(cfg["bot_token"]) == "" {
 				return fmt.Errorf("bot_token is required")

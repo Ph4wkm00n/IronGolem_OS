@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	envAccount  = "IRONGOLEM_SIGNAL_ACCOUNT"
-	envCLIPath  = "IRONGOLEM_SIGNAL_CLI_PATH" // override; otherwise PATH lookup
-	defaultCLI  = "signal-cli"
+	envAccount = "IRONGOLEM_SIGNAL_ACCOUNT"
+	envCLIPath = "IRONGOLEM_SIGNAL_CLI_PATH" // override; otherwise PATH lookup
+	defaultCLI = "signal-cli"
 )
 
 func Registration() connectors.Registration {
