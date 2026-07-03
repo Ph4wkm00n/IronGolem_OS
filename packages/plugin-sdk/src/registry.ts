@@ -5,6 +5,7 @@
  * Lifecycle: load -> validate -> activate -> running -> deactivate
  */
 
+import { validatePluginPermissions } from "@irongolem/schema";
 import type {
   Plugin,
   PluginContext,
@@ -51,6 +52,13 @@ function validateManifest(manifest: PluginManifest): string[] {
   if (!manifest.author || manifest.author.trim().length === 0) {
     issues.push("author is required");
   }
+  // v0.4: permissions must come from the closed vocabulary in
+  // @irongolem/schema. An enumerable permission surface is what makes
+  // install-time review and future audit probes possible; free-text
+  // permissions are unreviewable (openclaw install-scan study).
+  for (const issue of validatePluginPermissions(manifest.permissions ?? [])) {
+    issues.push(`permission "${issue.resource}": ${issue.problem}`);
+  }
 
   return issues;
 }
@@ -65,9 +73,41 @@ export interface WorkspacePolicyChecker {
   arePermissionsAllowed(permissions: PluginPermission[]): boolean;
 }
 
-/** Default policy checker that allows everything (development mode). */
+/** Policy checker that allows everything. DEVELOPMENT ONLY — the
+ *  registry defaults to {@link GrantedPermissionsPolicyChecker} with an
+ *  empty grant set (deny-by-default, per the trust-before-power rule). */
 export class AllowAllPolicyChecker implements WorkspacePolicyChecker {
   arePermissionsAllowed(_permissions: PluginPermission[]): boolean {
+    return true;
+  }
+}
+
+/**
+ * Deny-by-default checker: a permission is allowed only when the host
+ * granted its resource AND every requested action on it. v0.4 — this is
+ * the registry default; hosts opt plugins IN, plugins never opt
+ * themselves in (openclaw: "untrusted workspace plugins remain blocked
+ * from activating themselves").
+ */
+export class GrantedPermissionsPolicyChecker implements WorkspacePolicyChecker {
+  private readonly grants = new Map<string, Set<string>>();
+
+  constructor(granted: PluginPermission[] = []) {
+    for (const g of granted) {
+      const actions = this.grants.get(g.resource) ?? new Set<string>();
+      for (const a of g.actions) actions.add(a);
+      this.grants.set(g.resource, actions);
+    }
+  }
+
+  arePermissionsAllowed(permissions: PluginPermission[]): boolean {
+    for (const p of permissions) {
+      const actions = this.grants.get(p.resource);
+      if (!actions) return false;
+      for (const a of p.actions) {
+        if (!actions.has(a)) return false;
+      }
+    }
     return true;
   }
 }
@@ -82,7 +122,9 @@ export class PluginRegistry {
   private readonly policyChecker: WorkspacePolicyChecker;
 
   constructor(policyChecker?: WorkspacePolicyChecker) {
-    this.policyChecker = policyChecker ?? new AllowAllPolicyChecker();
+    // Deny-by-default: with no explicit checker, zero permissions are
+    // granted and any permission-requesting plugin fails registration.
+    this.policyChecker = policyChecker ?? new GrantedPermissionsPolicyChecker();
   }
 
   // -----------------------------------------------------------------------
