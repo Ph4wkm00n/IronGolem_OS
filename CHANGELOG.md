@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
-## v0.4 — Adoption Wave 2 (unreleased · branch `feature/v0.4-adoption-wave` · 2026-07-02)
+## v0.4 — Adoption Wave 2 (tagged v1.3.0 · merged via [#89](https://github.com/Ph4wkm00n/IronGolem_OS/pull/89) on 2026-07-03)
 
 Second source-code comparison wave against `openclaw/openclaw` (v2026.6.11) and `NousResearch/hermes-agent` (2026-07 heads). v0.3 absorbed seven patterns; this wave closes the three tracked gaps (checkpoint shared-store, inbound connector paths, LLM commitment extraction), ports the three highest-leverage openclaw audit probes, locks the plugin permission contract, and makes the build/CI honest. Six components, one commit each.
 

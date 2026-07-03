@@ -10,7 +10,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](#)
-[![Status](https://img.shields.io/badge/Release-v1.2.0-brightgreen.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/Release-v1.3.0-brightgreen.svg)](CHANGELOG.md)
 
 ## What is IronGolem OS?
 
@@ -28,7 +28,7 @@ IronGolem OS is a self-hosted autonomous assistant platform you can run on your 
 | **Research Center** | Tracked topics, source fetching, contradiction detection |
 | **Self-Healing** | Automatic failure detection, retries, config restoration, rollback |
 | **Multi-Tenant** | Solo (SQLite), Household, and Team (PostgreSQL) deployment modes |
-| **Multi-Channel** | Telegram, Slack, Discord, Signal, Email (IMAP/SMTP), Webhook — six built-in connectors as of v1.2.0; more land additively |
+| **Multi-Channel** | Telegram, Slack, Discord, Signal, Email (IMAP/SMTP), Webhook — six built-in connectors, bidirectional (Slack Socket Mode / Discord Gateway / signal-cli inbound) as of v1.3.0; more land additively |
 | **Event Sourcing** | Full audit trail for every autonomous action |
 
 ## Architecture
