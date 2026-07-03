@@ -6,6 +6,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
+## v0.4 — Adoption Wave 2 (unreleased · branch `feature/v0.4-adoption-wave` · 2026-07-02)
+
+Second source-code comparison wave against `openclaw/openclaw` (v2026.6.11) and `NousResearch/hermes-agent` (2026-07 heads). v0.3 absorbed seven patterns; this wave closes the three tracked gaps (checkpoint shared-store, inbound connector paths, LLM commitment extraction), ports the three highest-leverage openclaw audit probes, locks the plugin permission contract, and makes the build/CI honest. Six components, one commit each.
+
+### 1 — Build & CI honesty (`feat(build)`)
+
+- New `make check` (cargo check + go vet ×2 + pnpm typecheck) and `make fmt` (cargo fmt + gofmt ×2); `build`/`test`/`lint` now include the previously-orphaned connectors module.
+- CI TypeScript job: removed all four `|| true` failure-swallows, added typecheck/lint/test steps, Node 24, pnpm cache. Unswallowing exposed two real latent failures, both fixed: `packages/i18n` locales typed against `as const` English literals (every translation a type error), and workspace-wide lint broken since inception (`eslint` never installed — now eslint 9 + typescript-eslint + react-hooks flat config at root).
+
+### 2 — Inbound Slack/Discord/Signal + worker pattern (`feat(connectors)`)
+
+- `connectors/worker.go`: shared long-lived worker (panic recovery, capped exponential backoff + jitter, ctx/done lifecycle) — the shape both v0.3 stubs asked for.
+- Slack: **Socket Mode** (zero public HTTP exposure — consistent with the new exposure probes; Events API + `signing_secret` stay reserved for HTTP-fronted deployments). Discord: Gateway WS (identify/heartbeat/dispatch; RESUME is a TODO). Signal: `signal-cli receive --output=json` NDJSON subprocess loop.
+- All normalizers drop malformed/bot/self events without panicking; inbound metadata reuses outbound keys so replies round-trip unchanged. Missing tokens/binary degrade to outbound-only (logged once), never a crash-loop.
+- **Verified via table-driven normalization + worker tests; live-protocol handshakes (real Slack/Discord/Signal credentials) are a release-gate smoke item.**
+
+### 3 — GitSharedStore checkpoints (`feat(checkpoints)`)
+
+- Port of hermes `checkpoint_manager.py` v2: one bare git repo deduplicates objects across all projects; per-project `refs/irongolem/<hash16>` + `GIT_INDEX_FILE`; plumbing-only snapshots with CAS `update-ref`; config-isolation env so user gpgsign/credential helpers can't hang snapshots; three-layer prune/GC with the git-2.34 bare-repo dir repair.
+- Parallel public type beside `SqliteCheckpointStore` (plan-state trait is Uuid/JSON-shaped; forcing it would lie). 15 tests including cross-project dedup and contended CAS.
+- **Status: staged.** The crate API is complete and tested but not yet wired into runtimed plan execution — the Checkpoint plan-node integration is a v0.4 release-gate item.
+
+### 4 — Direct-LLM IPC verb + LLM commitment extraction (`feat(commitments)`)
+
+- `llm_call_request/response` in runtimed — one system+user turn, **no plan events**, unblocking the v0.3 extractor TODO without polluting the timeline.
+- `LLMExtractor` (opt-in: `IRONGOLEM_COMMITMENTS_EXTRACTOR=llm`): sensitivity-scaled confidence (care 0.86 / default 0.72, tested boundaries), strict JSON parse with brace-span fallback, relative-minute due windows floored to now+5m, 10-min self-disable after terminal failure with heuristic fallback throughout.
+
+### 5 — Audit probes: exposure_composition, fs_permissions, gateway_exposure (`feat(audit)`)
+
+- `exposure_composition`: channels granting `execute` (critical) or `write` (warning) — audits the *product* of channel openness × action privilege (openclaw `security.exposure.open_channels_with_exec`).
+- `fs_permissions`: gateway DB / state-dir world-access → critical. `gateway_exposure`: HMAC secret drift → critical; non-loopback bind (the `:8080` default!) → warning.
+
+### 6 — Plugin permission contract (`feat(plugins)`)
+
+- Closed resource×action vocabulary in `packages/schema/src/plugins.ts` mirrored by `runtime/core/src/plugin.rs` with cross-language sync tests; undeclared permissions fail validation AND Rust deserialization.
+- `GrantedPermissionsPolicyChecker` becomes the plugin-sdk registry default — deny-by-default, hosts opt plugins in.
+
+### Deliberately skipped (recorded for v0.5 triage)
+
+hermes `PlatformEntry` extensions and deferred-loading registry; Chronos cron patterns (scheduler still parked); `ProviderProfile` reasoning hooks; openclaw install-policy exec oracle + marketplace trust gate (strongest v0.5 candidate once the WASM sandbox lands).
+
+---
+
 ## v1.2.2 — Council-reviewed patch (tagged 2026-05-22)
 
 Patch-only release. Five fixes landed after a code review + security review + optimization pass; all backward-compatible at the wire level, all covered by unit tests. No new endpoints, no schema changes.
