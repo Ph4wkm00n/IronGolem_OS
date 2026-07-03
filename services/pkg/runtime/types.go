@@ -17,6 +17,8 @@ const (
 	KindPingResponse          = "ping_response"
 	KindListProvidersRequest  = "list_providers_request"  // v0.3 Step 3
 	KindListProvidersResponse = "list_providers_response" // v0.3 Step 3
+	KindLlmCallRequest        = "llm_call_request"        // v0.4
+	KindLlmCallResponse       = "llm_call_response"       // v0.4
 	KindShutdown              = "shutdown"
 )
 
@@ -94,6 +96,30 @@ type ListProvidersResponse struct {
 	RequestID string            `json:"request_id"`
 	Active    string            `json:"active"`
 	Profiles  []json.RawMessage `json:"profiles"`
+}
+
+// LlmCallRequest asks runtimed for one direct system+user model turn
+// (v0.4). Deliberately not plan execution: hidden background
+// classification (commitments extraction) must not pollute the event
+// timeline with plan events. Purpose is an attribution tag, never sent
+// to the model.
+type LlmCallRequest struct {
+	Kind        string `json:"kind"` // KindLlmCallRequest
+	RequestID   string `json:"request_id"`
+	WorkspaceID string `json:"workspace_id"`
+	Purpose     string `json:"purpose"`
+	System      string `json:"system"`
+	Prompt      string `json:"prompt"`
+	MaxTokens   uint32 `json:"max_tokens"`
+}
+
+// LlmCallResponse is the terminal response for an LlmCallRequest.
+type LlmCallResponse struct {
+	Kind      string          `json:"kind"` // KindLlmCallResponse
+	RequestID string          `json:"request_id"`
+	Status    ExecutionStatus `json:"status"`
+	Content   string          `json:"content"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // Plan mirrors irongolem-core::plan::Plan.

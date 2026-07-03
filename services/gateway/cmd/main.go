@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,6 +28,7 @@ import (
 	gwpolicy "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/policy"
 	gwruntime "github.com/Ph4wkm00n/IronGolem_OS/services/gateway/internal/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/policy"
+	ipcruntime "github.com/Ph4wkm00n/IronGolem_OS/services/pkg/runtime"
 	"github.com/Ph4wkm00n/IronGolem_OS/services/pkg/telemetry"
 
 	// Blank imports: each connector subpackage's init() self-registers
@@ -182,12 +184,28 @@ func main() {
 	go auditRuntime.Run(auditCtx)
 	auditFindingsHandler := handler.NewAuditFindingsHandler(auditFindingStore, logger)
 
-	// v0.3 Step 4 — Commitments subsystem. The extractor is a heuristic
-	// (regex + keyword) shipping in v0.3; a future LLM extractor lands
-	// when runtimed exposes a direct-LLM IPC verb. The dispatcher fires
-	// reminders through the connector manager's new SendOutbound path.
+	// v0.3 Step 4 — Commitments subsystem. The heuristic (regex +
+	// keyword) extractor remains the default. v0.4: setting
+	// IRONGOLEM_COMMITMENTS_EXTRACTOR=llm opts into LLM extraction over
+	// runtimed's direct llm_call verb, with the heuristic as fallback
+	// whenever the model path fails or is cooling down. The dispatcher
+	// fires reminders through the connector manager's SendOutbound path.
 	commitmentsStore := commitments.NewSQLiteStore(db)
-	commitmentsExtractor := commitments.NewHeuristicExtractor()
+	var commitmentsExtractor commitments.Extractor = commitments.NewHeuristicExtractor()
+	if os.Getenv("IRONGOLEM_COMMITMENTS_EXTRACTOR") == "llm" {
+		llmCall := func(ctx context.Context, workspaceID, system, prompt string) (string, error) {
+			resp, err := runtimeClient.LlmCall(ctx, workspaceID, "commitments.extract", system, prompt, 1024)
+			if err != nil {
+				return "", err
+			}
+			if resp.Status != ipcruntime.StatusCompleted {
+				return "", fmt.Errorf("llm_call failed: %s", resp.Error)
+			}
+			return resp.Content, nil
+		}
+		commitmentsExtractor = commitments.NewLLMExtractor(llmCall, commitments.NewHeuristicExtractor(), logger)
+		logger.Info("commitments: LLM extractor enabled (heuristic fallback armed)")
+	}
 	commitmentsDispatcher := handler.NewCommitmentDispatcher(connMgr, logger)
 	commitmentsEmitter := handler.NewCommitmentEventEmitter(eventStore)
 	commitmentsRuntime := commitments.NewRuntime(commitmentsStore, commitmentsDispatcher, commitmentsEmitter, logger, commitments.RuntimeConfig{})

@@ -8,7 +8,8 @@ use irongolem_core::{
     Error,
     ipc::{
         EventNotification, ExecutePlanRequest, ExecutePlanResponse, ExecutionStatus,
-        ListProvidersRequest, ListProvidersResponse, Message, PingRequest, PingResponse,
+        ListProvidersRequest, ListProvidersResponse, LlmCallRequest, LlmCallResponse, Message,
+        PingRequest, PingResponse,
     },
 };
 use irongolem_workflow::PlanEngine;
@@ -117,6 +118,39 @@ pub fn list_providers_response(
         active: active.profile().name.clone(),
         profiles,
     })
+}
+
+/// Handle a v0.4 LlmCallRequest: one system+user turn against the active
+/// provider, no plan events. Failures come back as a Failed response —
+/// never a dropped request — so the gateway's extractor can degrade to
+/// its heuristic path deterministically.
+///
+/// The current `LlmProvider::complete` surface takes a single prompt
+/// string; a non-empty `system` is prepended as a framing block. When the
+/// trait grows a structured system/messages parameter this is the one
+/// call site to update. `max_tokens` defers to the provider profile
+/// default for the same reason.
+pub async fn llm_call_response(req: &LlmCallRequest, provider: &dyn LlmProvider) -> LlmCallResponse {
+    let prompt = if req.system.is_empty() {
+        req.prompt.clone()
+    } else {
+        format!("{}\n\n{}", req.system, req.prompt)
+    };
+
+    match provider.complete(&prompt, None).await {
+        Ok(content) => LlmCallResponse {
+            request_id: req.request_id,
+            status: ExecutionStatus::Completed,
+            content,
+            error: None,
+        },
+        Err(e) => LlmCallResponse {
+            request_id: req.request_id,
+            status: ExecutionStatus::Failed,
+            content: String::new(),
+            error: Some(e.to_string()),
+        },
+    }
 }
 
 /// Build a synthetic ExecutePlanResponse for an internal failure (e.g. a
@@ -245,5 +279,56 @@ mod tests {
             result.response.output.as_ref().unwrap(),
             &serde_json::json!({"text": "pong"})
         );
+    }
+
+    #[tokio::test]
+    async fn direct_llm_call_completes_with_provider_content() {
+        let mock = MockProvider::new("{\"candidates\":[]}");
+        let req = LlmCallRequest {
+            request_id: Uuid::new_v4(),
+            workspace_id: WorkspaceId::new(),
+            purpose: "commitments.extract".into(),
+            system: "hidden classifier".into(),
+            prompt: "transcript here".into(),
+            max_tokens: 0,
+        };
+        let resp = llm_call_response(&req, &mock).await;
+        assert_eq!(resp.request_id, req.request_id);
+        assert_eq!(resp.status, ExecutionStatus::Completed);
+        assert_eq!(resp.content, "{\"candidates\":[]}");
+        assert!(resp.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn direct_llm_call_failure_is_a_failed_response_not_a_drop() {
+        struct FailingProvider(crate::provider::ProviderProfile);
+        #[async_trait::async_trait]
+        impl LlmProvider for FailingProvider {
+            async fn complete(
+                &self,
+                _prompt: &str,
+                _model: Option<&str>,
+            ) -> irongolem_core::Result<String> {
+                Err(Error::Internal("provider exploded".into()))
+            }
+            fn profile(&self) -> &crate::provider::ProviderProfile {
+                &self.0
+            }
+        }
+
+        let mock = MockProvider::new("unused");
+        let failing = FailingProvider(mock.profile().clone());
+        let req = LlmCallRequest {
+            request_id: Uuid::new_v4(),
+            workspace_id: WorkspaceId::new(),
+            purpose: "commitments.extract".into(),
+            system: String::new(),
+            prompt: "transcript".into(),
+            max_tokens: 0,
+        };
+        let resp = llm_call_response(&req, &failing).await;
+        assert_eq!(resp.status, ExecutionStatus::Failed);
+        assert!(resp.content.is_empty());
+        assert!(resp.error.as_deref().unwrap_or("").contains("exploded"));
     }
 }

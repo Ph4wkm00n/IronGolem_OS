@@ -8,7 +8,8 @@ use irongolem_core::{Error, ipc::Message};
 use irongolem_runtimed::{
     RealStepExecutor, build_provider,
     loop_io::{
-        error_response, list_providers_response, ping_response, process_request, write_message,
+        error_response, list_providers_response, llm_call_response, ping_response, process_request,
+        write_message,
     },
     provider::{LlmProvider, ProviderConfig},
 };
@@ -109,6 +110,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         error!(error = %e, "list_providers response build failed");
                     }
                 }
+            }
+            Message::LlmCallRequest(req) => {
+                // Model calls are slow; run them alongside plan execution
+                // so a background extraction can't stall the IPC loop.
+                let provider = Arc::clone(&provider);
+                let stdout_writer = Arc::clone(&stdout_writer);
+                in_flight.spawn(async move {
+                    let resp = llm_call_response(&req, provider.as_ref()).await;
+                    if let Err(e) =
+                        write_message(&stdout_writer, &Message::LlmCallResponse(resp)).await
+                    {
+                        error!(error = %e, "llm_call response write failed");
+                    }
+                });
             }
             Message::Shutdown(_) => {
                 info!("shutdown requested, draining in-flight requests");
