@@ -130,7 +130,10 @@ pub fn list_providers_response(
 /// trait grows a structured system/messages parameter this is the one
 /// call site to update. `max_tokens` defers to the provider profile
 /// default for the same reason.
-pub async fn llm_call_response(req: &LlmCallRequest, provider: &dyn LlmProvider) -> LlmCallResponse {
+pub async fn llm_call_response(
+    req: &LlmCallRequest,
+    provider: &dyn LlmProvider,
+) -> LlmCallResponse {
     let prompt = if req.system.is_empty() {
         req.prompt.clone()
     } else {
