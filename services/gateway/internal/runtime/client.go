@@ -107,7 +107,6 @@ type Client struct {
 	// cheap; writes go through stateMu.
 	stateMu sync.RWMutex
 	state   clientState
-
 }
 
 type clientState int

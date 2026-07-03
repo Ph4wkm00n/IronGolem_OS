@@ -182,11 +182,11 @@ func main() {
 		defer span.End(logger)
 
 		var req struct {
-			Name        string                `json:"name"`
-			Description string                `json:"description"`
+			Name        string                  `json:"name"`
+			Description string                  `json:"description"`
 			Type        internal.ExperimentType `json:"type"`
-			Baseline    string                `json:"baseline"`
-			Candidate   string                `json:"candidate"`
+			Baseline    string                  `json:"baseline"`
+			Candidate   string                  `json:"candidate"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -373,9 +373,9 @@ func main() {
 		if taskType != "" {
 			depth := depthCtrl.DepthForTaskType(taskType)
 			writeJSON(w, http.StatusOK, map[string]any{
-				"task_type":  taskType,
-				"depth":      depth,
-				"max_tokens": internal.DepthToMaxTokens(depth),
+				"task_type":   taskType,
+				"depth":       depth,
+				"max_tokens":  internal.DepthToMaxTokens(depth),
 				"temperature": internal.DepthToTemperature(depth),
 			})
 			return

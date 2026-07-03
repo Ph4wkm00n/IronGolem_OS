@@ -104,9 +104,9 @@ func (p *ChannelDMPolicy) Run(ctx context.Context) audit.Finding {
 				variants = append(variants, d)
 			}
 			conflicts = append(conflicts, map[string]any{
-				"channel_id":         key.ChannelID,
-				"action":             key.Action,
-				"decision_variants":  variants,
+				"channel_id":        key.ChannelID,
+				"action":            key.Action,
+				"decision_variants": variants,
 			})
 		}
 	}
@@ -118,8 +118,8 @@ func (p *ChannelDMPolicy) Run(ctx context.Context) audit.Finding {
 			Severity: audit.SeverityCritical,
 			Reason:   fmt.Sprintf("%d channel rule(s) hold conflicting decisions", len(conflicts)),
 			Evidence: map[string]any{
-				"total_rules": total,
-				"conflicts":   conflicts,
+				"total_rules":  total,
+				"conflicts":    conflicts,
 				"orphan_count": len(orphans),
 			},
 		}

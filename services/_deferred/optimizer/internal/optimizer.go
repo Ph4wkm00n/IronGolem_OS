@@ -23,22 +23,22 @@ const (
 
 // PromptVariant represents an alternative version of a prompt being tested.
 type PromptVariant struct {
-	ID           string `json:"id"`
-	BasePrompt   string `json:"base_prompt"`
-	Modification string `json:"modification"`
-	FullPrompt   string `json:"full_prompt"`
+	ID           string    `json:"id"`
+	BasePrompt   string    `json:"base_prompt"`
+	Modification string    `json:"modification"`
+	FullPrompt   string    `json:"full_prompt"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
 // ExperimentResult captures the outcome of an A/B prompt experiment.
 type ExperimentResult struct {
-	VariantID    string  `json:"variant_id"`
-	ApprovalRate float64 `json:"approval_rate"`
-	EditDistance  float64 `json:"edit_distance"`
+	VariantID    string        `json:"variant_id"`
+	ApprovalRate float64       `json:"approval_rate"`
+	EditDistance float64       `json:"edit_distance"`
 	Latency      time.Duration `json:"latency_ns"`
-	Cost         float64 `json:"cost"`
-	QualityScore float64 `json:"quality_score"`
-	SampleCount  int     `json:"sample_count"`
+	Cost         float64       `json:"cost"`
+	QualityScore float64       `json:"quality_score"`
+	SampleCount  int           `json:"sample_count"`
 }
 
 // ProviderBenchmark captures performance data for a single LLM provider

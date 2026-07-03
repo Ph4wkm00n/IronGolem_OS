@@ -49,25 +49,25 @@ func NewInboxHandler(logger *slog.Logger, eventStore EventStore) *InboxHandler {
 // json:",omitempty" so the wire stays compact when nothing meaningful
 // is populated yet.
 type InboxItem struct {
-	ID         string          `json:"id"`
-	Status     string          `json:"status"`
-	Title      string          `json:"title"`
-	Source     string          `json:"source"`
-	Risk       string          `json:"risk"`
-	MinutesAgo int             `json:"minutesAgo"`
-	Summary    string          `json:"summary"`
-	Cause      string          `json:"cause"`
-	RoutedBy   string          `json:"routedBy"`
-	Unread     bool            `json:"unread"`
-	Safety     inboxSafety     `json:"safety"`
-	Audit      []inboxAudit    `json:"audit"`
+	ID         string       `json:"id"`
+	Status     string       `json:"status"`
+	Title      string       `json:"title"`
+	Source     string       `json:"source"`
+	Risk       string       `json:"risk"`
+	MinutesAgo int          `json:"minutesAgo"`
+	Summary    string       `json:"summary"`
+	Cause      string       `json:"cause"`
+	RoutedBy   string       `json:"routedBy"`
+	Unread     bool         `json:"unread"`
+	Safety     inboxSafety  `json:"safety"`
+	Audit      []inboxAudit `json:"audit"`
 }
 
 type inboxSafety struct {
-	Can            []string `json:"can"`
-	Cannot         []string `json:"cannot"`
-	NeedsApproval  []string `json:"needsApproval"`
-	StopsIf        []string `json:"stopsIf"`
+	Can           []string `json:"can"`
+	Cannot        []string `json:"cannot"`
+	NeedsApproval []string `json:"needsApproval"`
+	StopsIf       []string `json:"stopsIf"`
 }
 
 type inboxAudit struct {

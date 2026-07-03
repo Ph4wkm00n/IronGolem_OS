@@ -27,13 +27,20 @@ import "time"
 // CommitmentKind classifies what the assistant promised.
 //
 // event_check_in   — promise to follow up at a scheduled time
-//                    ("I'll text you when the meeting starts")
+//
+//	("I'll text you when the meeting starts")
+//
 // deadline_check   — promise to remind before a deadline
-//                    ("I'll nudge you Friday about the tax filing")
+//
+//	("I'll nudge you Friday about the tax filing")
+//
 // care_check_in    — emotional/wellbeing follow-up
-//                    ("I'll check on you tomorrow")
+//
+//	("I'll check on you tomorrow")
+//
 // open_loop        — unresolved task with no specific time
-//                    ("I'll keep an eye on the contract review")
+//
+//	("I'll keep an eye on the contract review")
 type CommitmentKind string
 
 const (
@@ -142,13 +149,13 @@ type Commitment struct {
 	// Source provenance — which inbound event spawned this commitment.
 	SourceEventID string `json:"source_event_id,omitempty"`
 
-	CreatedAtMs   int64 `json:"created_at_ms"`
-	UpdatedAtMs   int64 `json:"updated_at_ms"`
-	SentAtMs      int64 `json:"sent_at_ms,omitempty"`
-	DismissedAtMs int64 `json:"dismissed_at_ms,omitempty"`
+	CreatedAtMs    int64 `json:"created_at_ms"`
+	UpdatedAtMs    int64 `json:"updated_at_ms"`
+	SentAtMs       int64 `json:"sent_at_ms,omitempty"`
+	DismissedAtMs  int64 `json:"dismissed_at_ms,omitempty"`
 	SnoozedUntilMs int64 `json:"snoozed_until_ms,omitempty"`
-	ExpiredAtMs   int64 `json:"expired_at_ms,omitempty"`
-	Attempts      int   `json:"attempts"`
+	ExpiredAtMs    int64 `json:"expired_at_ms,omitempty"`
+	Attempts       int   `json:"attempts"`
 }
 
 // Candidate is a pre-persistence extractor output. The runtime

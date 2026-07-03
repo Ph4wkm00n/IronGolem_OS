@@ -33,7 +33,7 @@ type Connector struct {
 	botID      int64
 	botName    string
 
-	connected bool
+	connected  bool
 	lastUpdate int64 // offset for getUpdates
 	msgCh      chan *connectors.Message
 	done       chan struct{}
@@ -54,16 +54,16 @@ type botUser struct {
 }
 
 type update struct {
-	UpdateID int64    `json:"update_id"`
+	UpdateID int64      `json:"update_id"`
 	Message  *tgMessage `json:"message,omitempty"`
 }
 
 type tgMessage struct {
-	MessageID int64  `json:"message_id"`
+	MessageID int64    `json:"message_id"`
 	From      *botUser `json:"from,omitempty"`
-	Chat      tgChat `json:"chat"`
-	Date      int64  `json:"date"`
-	Text      string `json:"text"`
+	Chat      tgChat   `json:"chat"`
+	Date      int64    `json:"date"`
+	Text      string   `json:"text"`
 }
 
 type tgChat struct {

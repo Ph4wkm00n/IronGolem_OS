@@ -371,9 +371,9 @@ func (h *ApprovalHandler) ApproveAction(w http.ResponseWriter, r *http.Request) 
 
 	// Emit approval event.
 	payload, _ := json.Marshal(map[string]string{
-		"approval_id": approval.ID,
-		"recipe_id":   approval.RecipeID,
-		"step_id":     approval.StepID,
+		"approval_id":  approval.ID,
+		"recipe_id":    approval.RecipeID,
+		"step_id":      approval.StepID,
 		"responded_by": respondedBy,
 	})
 	evt := events.NewEvent(events.EventKindApprovalApproved, "system", "gateway", payload)

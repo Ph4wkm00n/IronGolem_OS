@@ -15,10 +15,10 @@ import (
 
 // stubFindingStore implements audit.FindingStore for handler tests.
 type stubFindingStore struct {
-	items    []audit.StoredFinding
-	listErr  error
-	lastSev  audit.Severity
-	lastLim  int
+	items   []audit.StoredFinding
+	listErr error
+	lastSev audit.Severity
+	lastLim int
 }
 
 func (s *stubFindingStore) Insert(_ context.Context, _ audit.Finding) (string, error) {
@@ -40,9 +40,9 @@ func TestAuditFindings_OK(t *testing.T) {
 			{
 				ID: "f1",
 				Finding: audit.Finding{
-					ProbeID:  "trust_model",
-					Severity: audit.SeverityCritical,
-					Reason:   "missing HMAC",
+					ProbeID:   "trust_model",
+					Severity:  audit.SeverityCritical,
+					Reason:    "missing HMAC",
 					Timestamp: time.Now(),
 				},
 				StoredAt: time.Now(),

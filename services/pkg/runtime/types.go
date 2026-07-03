@@ -203,15 +203,15 @@ func DefaultRisk() Risk {
 // #[serde(tag = "type", content = "data")], so wire form is
 // {"type": "PlanCompleted", "data": {...}}.
 type RuntimeEvent struct {
-	ID             string          `json:"id"`
-	Timestamp      time.Time       `json:"timestamp"`
-	WorkspaceID    string          `json:"workspace_id"`
-	UserID         string          `json:"user_id,omitempty"`
-	AgentID        string          `json:"agent_id,omitempty"`
-	SessionID      string          `json:"session_id,omitempty"`
-	ChannelID      string          `json:"channel_id,omitempty"`
-	Kind           EventKind       `json:"kind"`
-	ParentEventID  string          `json:"parent_event_id,omitempty"`
+	ID            string    `json:"id"`
+	Timestamp     time.Time `json:"timestamp"`
+	WorkspaceID   string    `json:"workspace_id"`
+	UserID        string    `json:"user_id,omitempty"`
+	AgentID       string    `json:"agent_id,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	ChannelID     string    `json:"channel_id,omitempty"`
+	Kind          EventKind `json:"kind"`
+	ParentEventID string    `json:"parent_event_id,omitempty"`
 }
 
 // EventKind carries the discriminator and untyped data; the gateway can
@@ -223,13 +223,13 @@ type EventKind struct {
 
 // Event type names mirror irongolem-core::event::EventKind variants.
 const (
-	EventPlanCreated      = "PlanCreated"
-	EventPlanStepStarted  = "PlanStepStarted"
+	EventPlanCreated       = "PlanCreated"
+	EventPlanStepStarted   = "PlanStepStarted"
 	EventPlanStepCompleted = "PlanStepCompleted"
-	EventPlanStepFailed   = "PlanStepFailed"
-	EventPlanCompleted    = "PlanCompleted"
-	EventPlanRolledBack   = "PlanRolledBack"
-	EventToolCalled       = "ToolCalled"
-	EventToolResult       = "ToolResult"
+	EventPlanStepFailed    = "PlanStepFailed"
+	EventPlanCompleted     = "PlanCompleted"
+	EventPlanRolledBack    = "PlanRolledBack"
+	EventToolCalled        = "ToolCalled"
+	EventToolResult        = "ToolResult"
 	EventCheckpointCreated = "CheckpointCreated"
 )

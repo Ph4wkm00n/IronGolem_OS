@@ -72,15 +72,15 @@ type HealStory struct {
 }
 
 type PredictiveWarning struct {
-	ID                   string    `json:"id"`
-	Component            string    `json:"component"`
-	ComponentID          string    `json:"componentId"`
-	Signal               string    `json:"signal"`
-	Why                  string    `json:"why"`
-	ErrorBudgetUsedPct   int       `json:"errorBudgetUsedPct"`
-	WindowDays           int       `json:"windowDays"`
-	Trend                []float64 `json:"trend"`
-	SuggestedAction      string    `json:"suggestedAction"`
+	ID                 string    `json:"id"`
+	Component          string    `json:"component"`
+	ComponentID        string    `json:"componentId"`
+	Signal             string    `json:"signal"`
+	Why                string    `json:"why"`
+	ErrorBudgetUsedPct int       `json:"errorBudgetUsedPct"`
+	WindowDays         int       `json:"windowDays"`
+	Trend              []float64 `json:"trend"`
+	SuggestedAction    string    `json:"suggestedAction"`
 }
 
 // HealthStatusResponse is the payload the Health page consumes.
@@ -111,11 +111,11 @@ func (h *HealthStatusHandler) GetStatus(w http.ResponseWriter, r *http.Request) 
 // probeComponents returns the live component set. Order is stable so
 // the Health page renders deterministically:
 //
-//   1. Gateway HTTP (always healthy if we're answering)
-//   2. SQLite store (db.Ping)
-//   3. Runtime daemon (probed indirectly: when runtimed is up the
-//      gateway accepts inbound; v0.3 wires a direct Ping probe)
-//   4. Per-connector rows
+//  1. Gateway HTTP (always healthy if we're answering)
+//  2. SQLite store (db.Ping)
+//  3. Runtime daemon (probed indirectly: when runtimed is up the
+//     gateway accepts inbound; v0.3 wires a direct Ping probe)
+//  4. Per-connector rows
 func (h *HealthStatusHandler) probeComponents(ctx context.Context) []HealthComponent {
 	uptimeDays := int(time.Since(processStart).Hours() / 24)
 	if uptimeDays < 0 {

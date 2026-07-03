@@ -50,12 +50,12 @@ const (
 
 // Tenant is the top-level isolation boundary. All resources belong to a tenant.
 type Tenant struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	DeploymentMode DeploymentMode `json:"deployment_mode"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	Disabled       bool           `json:"disabled"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	DeploymentMode DeploymentMode    `json:"deployment_mode"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	Disabled       bool              `json:"disabled"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
@@ -107,15 +107,15 @@ const (
 // Channel is a communication endpoint within a workspace. Channels are
 // subject to per-channel policy restrictions (layer 4 of the security model).
 type Channel struct {
-	ID          string      `json:"id"`
-	TenantID    string      `json:"tenant_id"`
-	WorkspaceID string      `json:"workspace_id"`
-	Kind        ChannelKind `json:"kind"`
-	Name        string      `json:"name"`
-	ConnectorID string      `json:"connector_id"`
+	ID          string            `json:"id"`
+	TenantID    string            `json:"tenant_id"`
+	WorkspaceID string            `json:"workspace_id"`
+	Kind        ChannelKind       `json:"kind"`
+	Name        string            `json:"name"`
+	ConnectorID string            `json:"connector_id"`
 	Config      map[string]string `json:"config,omitempty"`
-	Enabled     bool        `json:"enabled"`
-	CreatedAt   time.Time   `json:"created_at"`
+	Enabled     bool              `json:"enabled"`
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
 // ConnectorStatus represents the runtime state of a connector.
@@ -131,15 +131,15 @@ const (
 // Connector represents an external service integration (email provider,
 // Slack workspace, Telegram bot, etc.).
 type Connector struct {
-	ID          string          `json:"id"`
-	TenantID    string          `json:"tenant_id"`
-	WorkspaceID string          `json:"workspace_id"`
-	Kind        ChannelKind     `json:"kind"`
-	Name        string          `json:"name"`
-	Status      ConnectorStatus `json:"status"`
+	ID          string            `json:"id"`
+	TenantID    string            `json:"tenant_id"`
+	WorkspaceID string            `json:"workspace_id"`
+	Kind        ChannelKind       `json:"kind"`
+	Name        string            `json:"name"`
+	Status      ConnectorStatus   `json:"status"`
 	Config      map[string]string `json:"config,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	LastPingAt  time.Time       `json:"last_ping_at"`
+	CreatedAt   time.Time         `json:"created_at"`
+	LastPingAt  time.Time         `json:"last_ping_at"`
 }
 
 // RecipeStatus represents the lifecycle state of a recipe.
@@ -155,16 +155,16 @@ const (
 // Recipe is a user-facing automation template with a safety summary.
 // Recipes are the primary way non-technical users interact with the platform.
 type Recipe struct {
-	ID            string       `json:"id"`
-	TenantID      string       `json:"tenant_id"`
-	WorkspaceID   string       `json:"workspace_id"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	SafetySummary string       `json:"safety_summary"`
-	SquadKind     SquadKind    `json:"squad_kind"`
-	Status        RecipeStatus `json:"status"`
+	ID            string         `json:"id"`
+	TenantID      string         `json:"tenant_id"`
+	WorkspaceID   string         `json:"workspace_id"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	SafetySummary string         `json:"safety_summary"`
+	SquadKind     SquadKind      `json:"squad_kind"`
+	Status        RecipeStatus   `json:"status"`
 	TriggerConfig map[string]any `json:"trigger_config,omitempty"`
-	CreatedBy     string       `json:"created_by"`
-	CreatedAt     time.Time    `json:"created_at"`
-	UpdatedAt     time.Time    `json:"updated_at"`
+	CreatedBy     string         `json:"created_by"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }

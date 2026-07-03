@@ -37,8 +37,8 @@ type TraceDetail struct {
 // It implements SpanExporter and provides query methods for the trace UI.
 type InMemoryExporter struct {
 	mu      sync.RWMutex
-	spans   []SpanData        // all spans, ordered by arrival
-	byTrace map[string][]int  // trace_id -> indices into spans
+	spans   []SpanData       // all spans, ordered by arrival
+	byTrace map[string][]int // trace_id -> indices into spans
 }
 
 // NewInMemoryExporter creates a new in-memory span exporter.

@@ -16,36 +16,36 @@ import (
 
 // ConnectorStatus represents the health state of a connector.
 type ConnectorStatus struct {
-	Name          string    `json:"name"`
-	Healthy       bool      `json:"healthy"`
-	LastChecked   time.Time `json:"last_checked"`
-	Latency       time.Duration `json:"latency_ns"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
-	ConsecutiveFails int    `json:"consecutive_fails"`
+	Name             string        `json:"name"`
+	Healthy          bool          `json:"healthy"`
+	LastChecked      time.Time     `json:"last_checked"`
+	Latency          time.Duration `json:"latency_ns"`
+	ErrorMessage     string        `json:"error_message,omitempty"`
+	ConsecutiveFails int           `json:"consecutive_fails"`
 }
 
 // ResourceUsage tracks simple CPU and memory metrics.
 type ResourceUsage struct {
-	MemoryAllocMB   float64 `json:"memory_alloc_mb"`
-	MemoryTotalMB   float64 `json:"memory_total_mb"`
-	MemorySysMB     float64 `json:"memory_sys_mb"`
-	NumGoroutines   int     `json:"num_goroutines"`
-	NumCPU          int     `json:"num_cpu"`
-	GCPauseTotalMs  float64 `json:"gc_pause_total_ms"`
-	CollectedAt     time.Time `json:"collected_at"`
+	MemoryAllocMB  float64   `json:"memory_alloc_mb"`
+	MemoryTotalMB  float64   `json:"memory_total_mb"`
+	MemorySysMB    float64   `json:"memory_sys_mb"`
+	NumGoroutines  int       `json:"num_goroutines"`
+	NumCPU         int       `json:"num_cpu"`
+	GCPauseTotalMs float64   `json:"gc_pause_total_ms"`
+	CollectedAt    time.Time `json:"collected_at"`
 }
 
 // StatusSummary provides an aggregate view for the Health Center dashboard.
 type StatusSummary struct {
-	TotalServices  int            `json:"total_services"`
-	Healthy        int            `json:"healthy"`
-	Recovering     int            `json:"recovering"`
-	NeedsAttention int            `json:"needs_attention"`
-	Paused         int            `json:"paused"`
-	Quarantined    int            `json:"quarantined"`
-	Resources      ResourceUsage  `json:"resources"`
+	TotalServices  int               `json:"total_services"`
+	Healthy        int               `json:"healthy"`
+	Recovering     int               `json:"recovering"`
+	NeedsAttention int               `json:"needs_attention"`
+	Paused         int               `json:"paused"`
+	Quarantined    int               `json:"quarantined"`
+	Resources      ResourceUsage     `json:"resources"`
 	Connectors     []ConnectorStatus `json:"connectors"`
-	CheckedAt      time.Time      `json:"checked_at"`
+	CheckedAt      time.Time         `json:"checked_at"`
 }
 
 // ConnectorChecker is a function that checks the health of a connector.

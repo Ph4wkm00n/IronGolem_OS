@@ -39,8 +39,8 @@ func (s *stubProbe) Run(ctx context.Context) Finding {
 
 // stubStore is a FindingStore that captures inserts in memory.
 type stubStore struct {
-	mu       sync.Mutex
-	inserts  []Finding
+	mu        sync.Mutex
+	inserts   []Finding
 	insertErr error
 }
 
@@ -60,9 +60,9 @@ func (s *stubStore) List(_ context.Context, _ Severity, _ int) ([]StoredFinding,
 
 // stubEmitter captures emitted findings.
 type stubEmitter struct {
-	mu       sync.Mutex
-	emitted  []StoredFinding
-	emitErr  error
+	mu      sync.Mutex
+	emitted []StoredFinding
+	emitErr error
 }
 
 func (s *stubEmitter) EmitAuditFinding(_ context.Context, f StoredFinding) error {

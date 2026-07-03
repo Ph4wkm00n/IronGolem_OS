@@ -30,8 +30,8 @@ func main() {
 
 	detector := internal.NewThreatDetector(logger, internal.DetectorConfig{
 		InjectionThreshold: 0.7,
-		AnomalyWindow:     5 * time.Minute,
-		AnomalyMaxVolume:  100,
+		AnomalyWindow:      5 * time.Minute,
+		AnomalyMaxVolume:   100,
 	})
 
 	// Initialize subsystems.
@@ -260,11 +260,11 @@ func main() {
 		defer span.End(logger)
 
 		var req struct {
-			Title            string                  `json:"title"`
-			Summary          string                  `json:"summary"`
+			Title            string                    `json:"title"`
+			Summary          string                    `json:"summary"`
 			Severity         internal.IncidentSeverity `json:"severity"`
-			AffectedServices []string                `json:"affected_services"`
-			TenantID         string                  `json:"tenant_id"`
+			AffectedServices []string                  `json:"affected_services"`
+			TenantID         string                    `json:"tenant_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{

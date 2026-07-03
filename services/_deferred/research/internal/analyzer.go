@@ -18,8 +18,8 @@ import (
 
 // Claim represents a single factual assertion extracted from source content.
 type Claim struct {
-	Text      string  `json:"text"`
-	SourceURL string  `json:"source_url"`
+	Text       string  `json:"text"`
+	SourceURL  string  `json:"source_url"`
 	Confidence float64 `json:"confidence"`
 }
 
@@ -124,10 +124,10 @@ func (ca *ContentAnalyzer) SuggestActions(ctx context.Context, topicName, summar
 	)
 
 	resp, err := ca.provider.Complete(ctx, provider.CompletionRequest{
-		Model:       ca.model,
-		Messages:    []provider.Message{{Role: provider.RoleUser, Content: prompt}},
-		MaxTokens:   512,
-		Temperature: 0.3,
+		Model:        ca.model,
+		Messages:     []provider.Message{{Role: provider.RoleUser, Content: prompt}},
+		MaxTokens:    512,
+		Temperature:  0.3,
 		SystemPrompt: "You are a research assistant. Respond with valid JSON only, no markdown fences.",
 	})
 	if err != nil {
@@ -237,10 +237,10 @@ func (cd *ContradictionDetector) DetectContradictions(ctx context.Context, claim
 // BriefGenerator synthesizes research findings into a ResearchBrief with
 // evidence links, contradiction analysis, and action suggestions.
 type BriefGenerator struct {
-	analyzer   *ContentAnalyzer
-	detector   *ContradictionDetector
-	scorer     *TrustScorer
-	logger     *slog.Logger
+	analyzer *ContentAnalyzer
+	detector *ContradictionDetector
+	scorer   *TrustScorer
+	logger   *slog.Logger
 }
 
 // NewBriefGenerator creates a generator that orchestrates claim extraction,

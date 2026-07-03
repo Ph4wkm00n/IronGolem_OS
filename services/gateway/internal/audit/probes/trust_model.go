@@ -16,14 +16,14 @@ import (
 // guarantees without crashing. This probe is the continuous check.
 //
 // What it asserts (each becomes a critical finding when violated):
-//   1. IRONGOLEM_HMAC_SECRET is set and non-empty. The gateway refuses
-//      to boot without it, but a hot-reload or restart with the env
-//      stripped would leave the running process in a vulnerable state
-//      that the probe surfaces.
-//   2. (Future) auth + policy middleware are in the request chain.
-//      Today the chain is statically wired in main.go; the probe will
-//      gain runtime middleware-introspection when v0.4 makes the chain
-//      configurable.
+//  1. IRONGOLEM_HMAC_SECRET is set and non-empty. The gateway refuses
+//     to boot without it, but a hot-reload or restart with the env
+//     stripped would leave the running process in a vulnerable state
+//     that the probe surfaces.
+//  2. (Future) auth + policy middleware are in the request chain.
+//     Today the chain is statically wired in main.go; the probe will
+//     gain runtime middleware-introspection when v0.4 makes the chain
+//     configurable.
 type TrustModel struct {
 	// hmacEnv is the env var name the gateway reads for the HMAC
 	// secret. Carried in the struct so tests can override.
