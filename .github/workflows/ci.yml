@@ -154,7 +154,9 @@ jobs:
             connectors/go.sum
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Pinned: @latest moved to v1.8.0 (requires go >= 1.26) on 2026-09-11 and
+        # broke every PR; v1.7.0 is the last release that runs on the 1.25 toolchain.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 
       - name: Go vulnerability check (services)
         working-directory: services
