@@ -15,13 +15,13 @@
     "@irongolem/design-tokens": "workspace:*",
     "@irongolem/schema": "workspace:*",
     "@irongolem/ui": "workspace:*",
-    "react": "^19.2.4",
+    "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.2",
