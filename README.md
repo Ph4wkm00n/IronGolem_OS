@@ -94,7 +94,15 @@ See the [Deployment Guide](docs/guides/deployment-guide.md) for Solo, Household,
 
 ## Screenshots
 
-> Screenshots will be added after the UI stabilizes. See the [UI/UX Design Guide](docs/specs/05-ui-ux-design-guide-v2.md) for current mockups.
+Captured from the built web app (`apps/web`, v2 UI) running in **mock mode** — the data is the
+bundled demo workspace, not a live gateway. Rebuild with `VITE_API_MODE=mock VITE_ENABLE_V2_UI=true`
+to see the same screens locally.
+
+| Workspace | Inbox |
+|---|---|
+| ![Workspace dashboard: overnight summary, heartbeat, recent activity with approve/deny](docs/screenshots/dashboard.png) | ![Inbox: items awaiting approval with drafted content, safety rules and audit trail](docs/screenshots/inbox.png) |
+
+![Health center: service heartbeats and status](docs/screenshots/health.png)
 
 ## Documentation
 
