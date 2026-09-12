@@ -10,7 +10,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](#)
-[![Status](https://img.shields.io/badge/Release-v1.3.0-brightgreen.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/Release-v1.3.1-brightgreen.svg)](CHANGELOG.md)
 
 ## What is IronGolem OS?
 

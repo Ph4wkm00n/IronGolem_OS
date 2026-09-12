@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 
 ---
 
+## v1.3.1 — Maintenance release (tagged 2026-09-12)
+
+Public-readiness pass; no runtime behaviour change.
+
+- **Licence classified.** `LICENSE` carried only the Apache notice header, so GitHub reported the licence as "Other"; it now ships the full Apache-2.0 text, with the copyright line in `NOTICE` ([#95](https://github.com/Ph4wkm00n/IronGolem_OS/pull/95)). The licence itself is unchanged.
+- **README screenshots.** Dashboard, inbox and health captured from the built `apps/web` in mock mode; the caption says the data is the demo workspace ([#97](https://github.com/Ph4wkm00n/IronGolem_OS/pull/97)).
+- **CI.** `govulncheck@latest` moved to v1.8.0, which requires Go 1.26, and broke every PR on the 1.25 toolchain; pinned to v1.7.0 ([#98](https://github.com/Ph4wkm00n/IronGolem_OS/pull/98)).
+- **Dependencies.** All 15 open dependabot updates merged with CI green: Go `modernc.org/sqlite` 1.56.0; GitHub Actions `checkout` 7, `setup-go` 7, `setup-node` 7, `cache` 6; npm `vite` 8.2.2, `react`/`react-dom` 19.2.7, `react-router-dom` 7.18.0, `tailwindcss` and `@tailwindcss/vite` 4.3.1, `postcss` 8.5.28, `autoprefixer` 10.5.2, `@tauri-apps/api` 2.11.1, `@tauri-apps/cli` 2.11.4.
+
+---
+
 ## v0.4 — Adoption Wave 2 (tagged v1.3.0 · merged via [#89](https://github.com/Ph4wkm00n/IronGolem_OS/pull/89) on 2026-07-03)
 
 Second source-code comparison wave against `openclaw/openclaw` (v2026.6.11) and `NousResearch/hermes-agent` (2026-07 heads). v0.3 absorbed seven patterns; this wave closes the three tracked gaps (checkpoint shared-store, inbound connector paths, LLM commitment extraction), ports the three highest-leverage openclaw audit probes, locks the plugin permission contract, and makes the build/CI honest. Six components, one commit each.
