@@ -1,6 +1,6 @@
 module github.com/Ph4wkm00n/IronGolem_OS/services
 
-go 1.25.0
+go 1.26.0
 
 // v0.2 Step 1: bring the connectors module into the gateway's import graph so
 // real connector instances (starting with Telegram) can be registered into the
@@ -12,17 +12,17 @@ replace github.com/Ph4wkm00n/IronGolem_OS/connectors => ../connectors
 require (
 	github.com/Ph4wkm00n/IronGolem_OS/connectors v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
-	modernc.org/sqlite v1.56.0
+	modernc.org/sqlite v1.61.0
 )
 
 require (
 	github.com/coder/websocket v1.8.15 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	modernc.org/libc v1.74.4 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
